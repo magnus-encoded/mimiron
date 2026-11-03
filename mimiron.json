@@ -2,7 +2,7 @@
   "id": "mimiron",
   "executable": "./mimiron",
   "app_ids": [
-    "wow.exe"
+    "steam_proton"
   ],
   "events": [
     "button",

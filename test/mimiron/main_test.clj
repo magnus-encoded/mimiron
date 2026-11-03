@@ -48,6 +48,7 @@
 (deftest leaving-wow-clears-overrides-and-status
   (let [out (session init wow
                      {:id 1 :method "speech" :params {:text "chat with party"}}
+                     {:id 2 :method "speech" :params {:text "hello"}}
                      {:method "focus" :params {:app_id "steam_proton" :title "Elden Ring"}})
         notices (filterv #(#{"pad_overrides" "status"} (:method %)) out)]
     (is (= [{:overrides []} {:text nil}] (mapv :params (take-last 2 notices))))))

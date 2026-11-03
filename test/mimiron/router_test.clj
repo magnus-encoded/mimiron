@@ -44,7 +44,7 @@
   (let [s (say r/initial "chat with party")]
     (is (nil? (r/status r/initial)))
     (is (= "Party" (r/status s)))
-    (is (= "Party (paused)" (r/status (press s :pad "select"))))
+    (is (= "Party (paused)" (r/status (say s "pause chat"))))
     (is (= "Party ↕" (r/status (say s "switch channel"))))
     (is (every? #(<= (count %) 32)
                 (for [c r/channels p [true false] w [true false]]
@@ -59,13 +59,13 @@
 (deftest overrides-follow-state
   (let [chat (say r/initial "chat with party")]
     (is (= [] (r/overrides r/initial)))
-    (is (= ["select"] (r/overrides chat)))
+    (is (= [] (r/overrides chat)) "Select stays free for the push-to-talk chord")
     (testing "the D-pad is held back only while switching"
-      (is (= #{"select" "dpad_up" "dpad_down" "east" "start"}
+      (is (= #{"dpad_up" "dpad_down" "east" "start"}
              (set (r/overrides (say chat "switch channel")))))
-      (is (= ["select"] (r/overrides (-> chat (say "switch channel") (press :pad "east"))))))
+      (is (= [] (r/overrides (-> chat (say "switch channel") (press :pad "east"))))))
     (testing "A and B are held back only while a line is drafted"
-      (is (= #{"select" "south" "east"} (set (r/overrides (say chat "hi"))))))))
+      (is (= #{"south" "east"} (set (r/overrides (say chat "hi"))))))))
 
 (deftest dpad-does-nothing-outside-switching
   (let [s (say r/initial "chat with party")]
@@ -88,7 +88,7 @@
       (is (false? (:draft (first (r/button s :request "south" false))))))))
 
 (deftest pause-stops-dictation-and-resumes
-  (let [s (press (say r/initial "chat with party") :pad "select")]
+  (let [s (say r/initial "chat with party" "pause chat")]
     (is (= [] (second (r/speech s {} "hi"))))
     (is (seq (second (r/speech (say s "resume chat") {} "hi"))))))
 

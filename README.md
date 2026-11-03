@@ -14,8 +14,8 @@ Written in Clojure, shipped as a GraalVM native binary.
   while switching.
 - "Switch channel": D-pad up and down step the channel; B or Start leaves.
 - A sends the drafted line, B cancels it.
-- Select pauses and resumes dictation while a channel is on.
-- "Stop chat" ends the mode; "resume chat" also unpauses.
+- "Pause chat" pauses dictation and "resume chat" resumes it. Select stays with the game and the push-to-talk chord.
+- "Stop chat" ends the mode.
 - "Open spells", "open bags", "open map" press the keys bound in
   `WTF/Account/*/bindings-cache.wtf` (read only), else WoW's defaults. The
   WTF folder comes from `~/.local/bin/wow-forever`, or `MIMIRON_WTF`.

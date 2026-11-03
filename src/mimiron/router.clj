@@ -20,6 +20,7 @@
 (def ^:private chat-prefixes ["chat with " "chat to " "chat in " "chat "])
 (def ^:private switch-phrases #{"switch channel" "switch channels" "change channel" "which channel"})
 (def ^:private stop-phrases #{"stop chat" "stop chatting" "end chat" "chat off" "chat mode off"})
+(def ^:private pause-phrases #{"pause chat" "pause dictation"})
 (def ^:private resume-phrases #{"resume chat" "resume dictation"})
 
 (def ^:private voice-actions
@@ -52,6 +53,7 @@
     (cond
       (and channel (switch-phrases said)) [(assoc state :switching true) []]
       (stop-phrases said) [initial cancel]
+      (and channel (pause-phrases said)) [(assoc state :paused true) []]
       (and channel (resume-phrases said)) [(assoc state :paused false) []]
       (chosen-channel said) [(assoc state :channel (chosen-channel said)
                                     :paused false :switching false :draft false) cancel]
@@ -82,7 +84,6 @@
     [(update state :channel step (if (= name "dpad_up") -1 1)) []]
 
     (and switching pressed? (#{"east" "start"} name)) [(assoc state :switching false) []]
-    (and channel pressed? (= name "select")) [(update state :paused not) []]
     (and draft pressed? (= name "east")) [(assoc state :draft false) [escape]]
     (and draft pressed? (= name "south") (= via :pad)) [(assoc state :draft false :switching false) [enter]]
     (and draft (not pressed?) (= name "south") (= via :request)) [(assoc state :draft false :switching false) []]
@@ -102,7 +103,6 @@
 
 (defn overrides
   "The pad buttons to keep from the game in this state."
-  [{:keys [channel switching draft]}]
-  (vec (distinct (concat (when channel ["select"])
-                         (when switching ["dpad_up" "dpad_down" "east" "start"])
+  [{:keys [switching draft]}]
+  (vec (distinct (concat (when switching ["dpad_up" "dpad_down" "east" "start"])
                          (when draft ["south" "east"])))))

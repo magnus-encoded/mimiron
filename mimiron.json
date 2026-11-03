@@ -1,7 +1,17 @@
 {
+  "id": "mimiron",
   "executable": "./mimiron",
-  "app_ids": ["wow.exe"],
-  "events": ["button", "focus"],
-  "start": "always",
-  "permissions": ["key", "text"]
+  "app_ids": [
+    "wow.exe"
+  ],
+  "events": [
+    "button",
+    "focus",
+    "speech"
+  ],
+  "start": "on_focus",
+  "permissions": [
+    "key",
+    "text"
+  ]
 }

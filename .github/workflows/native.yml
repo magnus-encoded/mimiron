@@ -12,6 +12,7 @@ jobs:
       - uses: DeLaGuardo/setup-clojure@13.0
         with:
           cli: latest
+      - run: clojure -M:test
       - run: ./build-native
       - name: Smoke test initialize
         run: |

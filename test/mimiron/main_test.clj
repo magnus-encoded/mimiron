@@ -52,6 +52,21 @@
         notices (filterv #(#{"pad_overrides" "status"} (:method %)) out)]
     (is (= [{:overrides []} {:text nil}] (mapv :params (take-last 2 notices))))))
 
+(defn- stderr-of [& lines]
+  (let [err (java.io.StringWriter.)]
+    (with-out-str (binding [*err* err] (main/run lines {})))
+    (str err)))
+
+(deftest logs-never-contain-message-content
+  (let [secret "hunter2-party-secret"
+        err (stderr-of (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"speech\",\"params\":{\"text\":\"" secret)
+                       (str "[\"" secret "\"]")
+                       (str "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"speech\",\"params\":{\"text\":{\"x\":\"" secret "\"}}}")
+                       (str "\"" secret "\""))]
+    (is (seq err) "the bad lines were logged")
+    (is (not (str/includes? err secret)))
+    (is (not (str/includes? err "hunter2")))))
+
 (deftest nothing-before-initialize
   (is (= [] (filterv :method (session {:id 1 :method "speech" :params {:text "chat with party"}})))))
 

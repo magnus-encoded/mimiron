@@ -65,6 +65,9 @@
     [(router/overrides (:state world)) (router/status (:state world))]
     [[] nil]))
 
+(def ^:private known-methods
+  #{"initialize" "focus" "speech" "button" "pad_input"})
+
 (defn- sync!
   "Sends overrides and status when they changed since the last message."
   [before after]
@@ -79,11 +82,23 @@
 
 (defn run [lines bound]
   (reduce (fn [world line]
-            (try
-              (let [next-world (handle world (json/read-value line mapper))]
-                (sync! world next-world)
-                next-world)
-              (catch Exception e (log "bad line:" (ex-message e)) world)))
+            ;; Lines can carry speech and chat, so logs name only the error
+            ;; class, a known method and the line length, never content.
+            (let [msg (try (json/read-value line mapper)
+                           (catch Exception e
+                             (log "bad line:" (.getSimpleName (class e)) "length" (count line))
+                             nil))]
+              (if-not (map? msg)
+                (do (when msg (log "bad line: not an object, length" (count line))) world)
+                (try
+                  (let [next-world (handle world msg)]
+                    (sync! world next-world)
+                    next-world)
+                  (catch Exception e
+                    (log "failed:" (.getSimpleName (class e))
+                         "method" (known-methods (:method msg) "other")
+                         "length" (count line))
+                    world)))))
           {:state router/initial :bound bound :ready false :game false}
           lines))
 

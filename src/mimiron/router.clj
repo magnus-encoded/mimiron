@@ -45,17 +45,27 @@
 (defn speech
   "Handles one utterance. Returns [state actions]."
   [{:keys [channel paused] :as state} bound text]
-  (let [said (normalize text)]
+  (let [said (normalize text)
+        ;; An open draft is cancelled before the mode changes, so a later
+        ;; Enter can never post it.
+        cancel (if (:draft state) [escape] [])]
     (cond
       (and channel (switch-phrases said)) [(assoc state :switching true) []]
-      (stop-phrases said) [initial []]
+      (stop-phrases said) [initial cancel]
       (and channel (resume-phrases said)) [(assoc state :paused false) []]
       (chosen-channel said) [(assoc state :channel (chosen-channel said)
-                                    :paused false :switching false) []]
-      (voice-actions said) [state (if-let [k (bindings/key-for bound (voice-actions said))] [k] [])]
+                                    :paused false :switching false :draft false) cancel]
+      ;; Keys pressed into an open chat box would only type letters there.
+      (voice-actions said) [state (if-let [k (and (not (:draft state))
+                                                  (bindings/key-for bound (voice-actions said)))]
+                                    [k] [])]
+      ;; Speech only ever drafts. A second utterance extends the open draft:
+      ;; another Enter there would post the first one without A.
       (and channel (not paused) (seq said))
       [(assoc state :draft true)
-       [enter {:type "text" :text (str (slash channel) " " (str/trim text))}]]
+       (if (:draft state)
+         [{:type "text" :text (str " " (str/trim text))}]
+         [enter {:type "text" :text (str (slash channel) " " (str/trim text))}])]
       :else [state []])))
 
 (defn- step [channel delta]
@@ -78,8 +88,11 @@
     (and draft (not pressed?) (= name "south") (= via :request)) [(assoc state :draft false :switching false) []]
     :else [state []]))
 
-(defn focus [state in-game?]
-  (if in-game? state (assoc state :switching false :draft false)))
+(defn focus
+  "Leaving the game ends switching. A draft stays: WoW keeps its chat box open,
+  so the next utterance must extend it, not press Enter on it."
+  [state in-game?]
+  (if in-game? state (assoc state :switching false)))
 
 (defn status
   "The powerline text: the channel, marked while paused or switching."

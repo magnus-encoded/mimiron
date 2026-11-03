@@ -22,9 +22,20 @@
 
 (deftest channel-is-sticky-and-opens-chat-first
   (let [s (say r/initial "chat with guild")]
-    (doseq [t ["one" "two"]]
-      (is (= [{:type "key" :key "enter"} {:type "text" :text (str "/g " t)}]
-             (second (r/speech s {} t)))))))
+    (is (= [{:type "key" :key "enter"} {:type "text" :text "/g one"}]
+           (second (r/speech s {} "one"))))
+    (is (= [{:type "key" :key "enter"} {:type "text" :text "/g two"}]
+           (second (r/speech (-> s (say "one") (press :pad "south")) {} "two"))))))
+
+(deftest speech-never-posts-without-a
+  (testing "a second utterance extends the draft instead of pressing Enter"
+    (let [s (say r/initial "chat with party" "background talk")]
+      (is (= [{:type "text" :text " more talk"}] (second (r/speech s {} "more talk"))))))
+  (testing "only A presses Enter on an open draft"
+    (let [enter {:type "key" :key "enter"}
+          s (say r/initial "chat with party" "one")]
+      (is (not-any? #{enter} (mapcat #(second (r/speech (say s "two") {} %)) ["three" "open bags"])))
+      (is (= [enter] (second (r/button s :pad "south" true)))))))
 
 (deftest stop-chat-ends-mode
   (is (= [] (second (r/speech (say r/initial "chat with say" "stop chat") {} "hello")))))
@@ -81,11 +92,21 @@
     (is (= [] (second (r/speech s {} "hi"))))
     (is (seq (second (r/speech (say s "resume chat") {} "hi"))))))
 
-(deftest leaving-the-game-drops-switching-and-draft
+(deftest leaving-the-game-drops-switching-and-keeps-the-draft
   (let [s (r/focus (say r/initial "chat with party" "hi" "switch channel") false)]
     (is (false? (:switching s)))
-    (is (false? (:draft s)))
-    (is (= "party" (:channel s)))))
+    (is (true? (:draft s)))
+    (is (= "party" (:channel s)))
+    (is (= [{:type "text" :text " again"}] (second (r/speech s {} "again"))))))
+
+(deftest mode-changes-cancel-an-open-draft
+  (let [escape {:type "key" :key "escape"}
+        s (say r/initial "chat with party" "hi")]
+    (is (= [escape] (second (r/speech s {} "stop chat"))))
+    (is (= [escape] (second (r/speech s {} "chat with guild"))))
+    (is (= [{:type "key" :key "enter"} {:type "text" :text "/g yo"}]
+           (second (r/speech (say s "chat with guild") {} "yo"))))
+    (is (= [] (second (r/speech s {} "open bags"))))))
 
 (deftest voice-actions-use-bindings
   (is (= [{:type "key" :key "b"}] (second (r/speech r/initial {} "open bags"))))

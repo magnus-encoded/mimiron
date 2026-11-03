@@ -1,0 +1,7 @@
+{
+  "executable": "./mimiron",
+  "app_ids": ["wow.exe"],
+  "events": ["button", "focus"],
+  "start": "always",
+  "permissions": ["key", "text"]
+}

@@ -6,16 +6,18 @@ channel on the powerline. Super experimental. Design: Tehuti's
 
 Written in Clojure, shipped as a GraalVM native binary.
 
+## Develop
+
+Locally we only run a REPL. Needs the Clojure CLI (Arch: `clojure`).
+
+    clojure -M:repl
+
 ## Build
 
-Needs the Clojure CLI and GraalVM with `native-image` (Arch: `clojure`, AUR
-`jdk21-graalvm-bin`).
+GitHub Actions builds the native binary with GraalVM on every push
+(`.github/workflows/native.yml`) and uploads it as an artifact.
+`build-native` is the script it runs.
 
-    ./build-native
+## Install
 
-## Try
-
-    echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocol_version":0,"encoding":"json","core_version":"0.0.0"}}' | ./mimiron
-
-Install by copying `mimiron` and `mimiron.json` into
-`<context-directory>/plugins/`.
+Copy `mimiron` and `mimiron.json` into `<context-directory>/plugins/`.

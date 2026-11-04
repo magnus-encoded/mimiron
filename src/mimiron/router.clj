@@ -41,8 +41,15 @@
        (remove str/blank?)
        (str/join " ")))
 
+(defn- channel-for
+  "A channel word, tolerating a spoken plural or possessive (\"guilds\", \"guild's\")."
+  [word]
+  (or (channel-words word)
+      (channel-words (str/replace word #"'?s$" ""))
+      ({"parties" "party"} word)))
+
 (defn- chosen-channel [said]
-  (some #(when (str/starts-with? said %) (channel-words (subs said (count %))))
+  (some #(when (str/starts-with? said %) (channel-for (subs said (count %))))
         chat-prefixes))
 
 (defn- speech-key [key]

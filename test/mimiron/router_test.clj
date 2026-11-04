@@ -15,6 +15,17 @@
                           ["chat with battle ground" "battleground"] ["chat with sigh" "say"]]]
     (is (= channel (:channel (say r/initial said))) said)))
 
+(deftest plurals-and-possessives-pick-the-intended-channel
+  (doseq [[said channel] [["chat with guilds" "guild"] ["Chat with says." "say"]
+                          ["chat with raids" "raid"] ["chat with parties" "party"]
+                          ["chat with guild's" "guild"] ["chat with party's" "party"]]]
+    (is (= channel (:channel (say r/initial said))) said)))
+
+(deftest plural-does-not-leave-chat-mode-on-while-in-a-channel
+  (let [s (say r/initial "chat with say")]
+    (is (= "guild" (:channel (say s "chat with guilds"))))
+    (is (empty? (second (r/speech s {} "chat with guilds"))))))
+
 (deftest unknown-channel-keeps-mode-off
   (is (nil? (:channel (say r/initial "chat with banana")))))
 

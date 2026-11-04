@@ -24,6 +24,25 @@
 (defn- log [& parts]
   (binding [*out* *err*] (apply println "mimiron:" parts)))
 
+;; Opt-in matching aid: while this flag file exists, each heard line and the
+;; routing outcome go to a local file in /tmp. Off by default; never shipped.
+(def ^:private speech-debug-flag "/tmp/mimiron-speech-debug")
+(def ^:private speech-debug-file "/tmp/mimiron-speech.log")
+
+(defn- debug-speech! [heard before after actions]
+  (when (.exists (java.io.File. ^String speech-debug-flag))
+    (try
+      (let [f (java.io.File. ^String speech-debug-file)]
+        (when-not (.exists f)
+          (.createNewFile f)
+          (.setReadable f false false) (.setReadable f true true)
+          (.setWritable f false false) (.setWritable f true true))
+        (spit f (str (java.time.LocalTime/now) " heard=" (pr-str heard)
+                     " channel=" (:channel before) "->" (:channel after)
+                     " actions=" (mapv :type actions) "\n")
+              :append true))
+      (catch Exception _ nil))))
+
 (defn- notify! [method params] (send! {:method method :params params}))
 
 (defn- route
@@ -35,6 +54,7 @@
                                               (= "pressed" (:state params)))
                       "pad_input" (router/button state :pad (:button params)
                                                  (= "pressed" (:state params))))]
+    (when (= method "speech") (debug-speech! (:text params "") state s actions))
     [(assoc world :state s) actions]))
 
 (defn- handle

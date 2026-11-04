@@ -12,12 +12,13 @@
 (def ^:private channel-words
   {"say" "say" "sigh" "say"
    "party" "party" "potty" "party" "parity" "party" "pardee" "party"
-   "guild" "guild" "guilt" "guild" "gild" "guild"
+   "guild" "guild" "guilt" "guild" "gild" "guild" "yield" "guild"
    "raid" "raid" "rate" "raid" "red" "raid"
    "battleground" "battleground" "battle ground" "battleground"
    "battlegrounds" "battleground" "bg" "battleground"})
 
-(def ^:private chat-prefixes ["chat with " "chat to " "chat in " "chat "])
+;; "cat with" is how the recogniser has heard "chat with".
+(def ^:private chat-prefixes ["chat with " "chat to " "chat in " "cat with " "cat to " "cat in " "chat "])
 (def ^:private switch-phrases #{"switch channel" "switch channels" "change channel" "which channel"})
 (def ^:private stop-phrases #{"stop chat" "stop chatting" "end chat" "chat off" "chat mode off"})
 (def ^:private pause-phrases #{"pause chat" "pause dictation"})

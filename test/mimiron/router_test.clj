@@ -21,6 +21,11 @@
                           ["chat with guild's" "guild"] ["chat with party's" "party"]]]
     (is (= channel (:channel (say r/initial said))) said)))
 
+(deftest heard-variants-of-the-trigger-and-channel
+  (doseq [[said channel] [["cat with yields" "guild"] ["cat with yield" "guild"]
+                          ["cat in party" "party"] ["chat with yield" "guild"]]]
+    (is (= channel (:channel (say r/initial said))) said)))
+
 (deftest plural-does-not-leave-chat-mode-on-while-in-a-channel
   (let [s (say r/initial "chat with say")]
     (is (= "guild" (:channel (say s "chat with guilds"))))

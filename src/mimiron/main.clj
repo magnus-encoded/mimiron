@@ -47,7 +47,9 @@
                      (assoc world :ready true))
     "focus" (let [game? (in-game? params)]
               (-> world
-                  (assoc :game game?)
+                  (assoc :game game?
+                         :launcher (and (contains? app-ids (:app_id params))
+                                        (= "BattleNet - Wine Desktop" (:title params))))
                   (update :state router/focus game?)))
     ("speech" "button" "pad_input")
     (let [[next-world actions] (if (:game world) (route world method params) [world []])]
@@ -63,7 +65,7 @@
   [world]
   (if (:game world)
     [(router/overrides (:state world)) (router/status (:state world))]
-    [[] nil]))
+    [[] (when (:launcher world) "Start WoW with wow-forever")]))
 
 (def ^:private known-methods
   #{"initialize" "focus" "speech" "button" "pad_input"})
@@ -80,30 +82,68 @@
       (when (or fresh (not= s s0))
         (notify! "status" {:text s})))))
 
+(def max-line-length 65536)
+
+(defn read-lines
+  "Bounded JSON-line reader. Oversized lines are drained without retaining content."
+  [^java.io.Reader reader]
+  (lazy-seq
+   (let [buf (StringBuilder.)]
+     (loop [n 0]
+       (let [c (.read reader)]
+         (if (or (= -1 c) (= 10 c))
+           (when (or (pos? n) (= 10 c))
+             (cons (if (> n max-line-length) {:length n} (str buf))
+                   (when-not (= -1 c) (read-lines reader))))
+           (do (when (< n max-line-length) (.append buf (char c)))
+               (recur (inc n)))))))))
+
+(defn- error! [class-name method length]
+  (log "error" class-name "method" (or (known-methods method) "other") "length" length))
+
+(defn- valid-message? [{:keys [method params]}]
+  (and (string? method)
+       (map? params)
+       (case method
+         "speech" (string? (:text params))
+         "focus" (and (string? (:app_id params)) (string? (:title params)))
+         "button" (and (string? (:name params)) (#{"pressed" "released"} (:state params)))
+         "pad_input" (and (string? (:button params)) (#{"pressed" "released"} (:state params)))
+         true)))
+
 (defn run [lines bound]
   (reduce (fn [world line]
-            ;; Lines can carry speech and chat, so logs name only the error
-            ;; class, a known method and the line length, never content.
-            (let [msg (try (json/read-value line mapper)
-                           (catch Exception e
-                             (log "bad line:" (.getSimpleName (class e)) "length" (count line))
-                             nil))]
-              (if-not (map? msg)
-                (do (when msg (log "bad line: not an object, length" (count line))) world)
-                (try
-                  (let [next-world (handle world msg)]
-                    (sync! world next-world)
-                    next-world)
-                  (catch Exception e
-                    (log "failed:" (.getSimpleName (class e))
-                         "method" (known-methods (:method msg) "other")
-                         "length" (count line))
-                    world)))))
+            (let [length (if (map? line) (:length line) (count line))]
+              (if (> length max-line-length)
+                (do (error! "LineTooLong" nil length) world)
+                (let [msg (try (json/read-value line mapper)
+                               (catch Exception e
+                                 (error! (.getSimpleName (class e)) nil length)
+                                 ::invalid))]
+                  (cond
+                    (= ::invalid msg) world
+                    (not (map? msg)) (do (error! "InvalidRequest" nil length) world)
+                    (not (known-methods (:method msg)))
+                    (do (error! "UnknownMethod" nil length) (handle world msg))
+                    (not (valid-message? msg))
+                    (do (error! "InvalidParams" (:method msg) length) world)
+                    :else
+                    (try
+                      (let [next-world (handle world msg)]
+                        (sync! world next-world)
+                        next-world)
+                      (catch Exception e
+                        (error! (.getSimpleName (class e)) (:method msg) length)
+                        world)))))))
           {:state router/initial :bound bound :ready false :game false}
           lines))
 
 (defn -main [& _]
-  (let [root (bindings/default-wtf-root)
-        bound (if root (bindings/load-bindings root) {})]
-    (log "bindings from" (or root "defaults"))
-    (run (line-seq (java.io.BufferedReader. *in*)) bound)))
+  (let [bound (try
+                (if-let [cache (System/getenv "MIMIRON_BINDINGS")]
+                  (bindings/load-bindings nil cache)
+                  (bindings/load-bindings (bindings/default-wtf-root)))
+                (catch Exception e
+                  (error! (.getSimpleName (class e)) nil 0)
+                  {}))]
+    (run (read-lines *in*) bound)))

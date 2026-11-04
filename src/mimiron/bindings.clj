@@ -4,12 +4,15 @@
             [clojure.string :as str]))
 
 (def default-keys
-  {"TOGGLESPELLBOOK" "P"
+  {"SCREENSHOT" "PRINTSCREEN"
+   "OPENCHATSLASH" "/"
+   "TOGGLESPELLBOOK" "P"
    "OPENALLBAGS" "B"
    "TOGGLEWORLDMAP" "M"})
 
 (def ^:private key-names
-  {"SPACE" "space" "ESCAPE" "escape" "ENTER" "enter" "TAB" "tab"
+  {"PRINTSCREEN" "print_screen"
+   "SPACE" "space" "ESCAPE" "escape" "ENTER" "enter" "TAB" "tab"
    "BACKSPACE" "backspace" "HOME" "home" "END" "end" "PAGEUP" "page_up"
    "PAGEDOWN" "page_down" "INSERT" "insert" "DELETE" "delete"
    "UP" "up" "DOWN" "down" "LEFT" "left" "RIGHT" "right"
@@ -66,13 +69,23 @@
         (when (.exists launcher)
           (wtf-root-from-launcher (slurp launcher) home)))))
 
+(defn- read-cache [file]
+  (try
+    (parse (slurp file))
+    (catch java.io.IOException _ {})))
+
 (defn load-bindings
-  "Bindings from the newest Account/*/bindings-cache.wtf, or {} when none. Never writes."
-  [wtf-root]
-  (let [accounts (.listFiles (io/file wtf-root "Account"))
-        caches (->> accounts
-                    (map #(io/file % "bindings-cache.wtf"))
-                    (filter #(.isFile ^java.io.File %))
-                    (sort-by #(- (.lastModified ^java.io.File %))))]
-    (or (some #(try (parse (slurp %)) (catch java.io.IOException _ nil)) caches)
-        {})))
+  "Reads an explicit account/character cache when supplied; otherwise the newest
+  account cache under WTF. Character identity cannot be inferred from mtimes.
+  Never merges binding sets or writes files."
+  ([wtf-root] (load-bindings wtf-root nil))
+  ([wtf-root cache-file]
+   (if cache-file
+     (read-cache (io/file cache-file))
+     (let [accounts (when wtf-root (.listFiles (io/file wtf-root "Account")))
+           caches (->> accounts
+                       (map #(io/file % "bindings-cache.wtf"))
+                       (filter #(.isFile ^java.io.File %))
+                       (sort-by (juxt #(- (.lastModified ^java.io.File %))
+                                      #(.getPath ^java.io.File %))))]
+       (if-let [cache (first caches)] (read-cache cache) {})))))

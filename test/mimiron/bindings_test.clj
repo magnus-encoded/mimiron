@@ -46,3 +46,87 @@
           (str "export WINEPREFIX=\"$HOME/Games/battlenet\"\n"
                "cd \"$WINEPREFIX/drive_c/World of Warcraft/_forever_\" || exit 1\n")
           "/home/u"))))
+
+
+(deftest open-chat-with-slash-binding
+  (is (= {:type "key" :key "slash"} (b/key-for {} "OPENCHATSLASH")))
+  (is (= {:type "key" :key "j" :mods ["ctrl"]}
+         (b/key-for (b/parse "bind CTRL-J OPENCHATSLASH") "OPENCHATSLASH")))
+  (is (nil? (b/key-for {"/" "NONE"} "OPENCHATSLASH"))))
+(deftest unusable-cache-is-safe
+  (doseq [relative ["Account/A/bindings-cache.wtf"
+                    "Account/A/Realm/Character/bindings-cache.wtf"]
+          content ["" "garbled\u0000\ufffd\nnot a binding"]]
+    (let [root (temp-dir)
+          file (io/file root relative)]
+      (io/make-parents file)
+      (spit file content)
+      (is (= {} (b/load-bindings root))))))
+
+(deftest wow-modifier-syntax
+  (doseq [[prefix mods] [["SHIFT-" ["shift"]]
+                         ["CTRL-" ["ctrl"]]
+                         ["ALT-" ["alt"]]
+                         ["SHIFT-CTRL-ALT-" ["shift" "ctrl" "alt"]]
+                         ["ALT-CTRL-SHIFT-" ["alt" "ctrl" "shift"]]]]
+    (is (= {:type "key" :key "j" :mods mods}
+           (b/key-action (str prefix "J"))))
+    (is (= {:type "key" :key "minus" :mods mods}
+           (b/key-action (str prefix "-")))))
+  (is (= {"SHIFT-CTRL-ALT-J" "OPENALLBAGS"}
+         (b/parse "bind SHIFT-CTRL-ALT-J OPENALLBAGS
+"))))
+
+(deftest pad-bindings-are-preserved-but-never-emulated-as-keys
+  ;; Tehuti's plugin key action cannot emit native gamepad inputs.
+  (doseq [pad ["PAD1" "PAD2" "PAD3" "PAD4" "PADSYSTEM" "PADBACK" "PADFORWARD"
+               "PADLSHOULDER" "PADRSHOULDER" "PADLTRIGGER" "PADRTRIGGER"
+               "PADLSTICK" "PADRSTICK" "PADDUP" "PADDDOWN" "PADDLEFT" "PADDRIGHT"]
+          prefix ["" "SHIFT-" "CTRL-" "ALT-"]]
+    (let [key (str prefix pad)
+          bound (b/parse (str "bind B NONE
+bind " key " OPENALLBAGS
+bind J OPENALLBAGS
+"))]
+      (is (= "OPENALLBAGS" (get bound key)))
+      (is (nil? (b/key-action key)))
+      (is (= {:type "key" :key "j"} (b/key-for bound "OPENALLBAGS")))))
+  (is (nil? (b/key-for {"B" "NONE" "PAD1" "OPENALLBAGS"} "OPENALLBAGS"))))
+
+(deftest explicit-character-cache-selects-one-binding-set
+  (let [root (io/file (temp-dir) "_forever_" "WTF")
+        account (io/file root "Account/A/bindings-cache.wtf")
+        char-a (io/file root "Account/A/Realm/One/bindings-cache.wtf")
+        char-b (io/file root "Account/A/Realm/Two/bindings-cache.wtf")]
+    (doseq [[file text] [[account "bind B NONE
+bind M TOGGLEWORLDMAP
+"]
+                         [char-a "bind ALT-J TOGGLEWORLDMAP
+"]
+                         [char-b "bind PAD1 TOGGLEWORLDMAP
+"]]]
+      (io/make-parents file)
+      (spit file text))
+    (.setLastModified char-b (+ 10000 (.lastModified account)))
+    (is (= {"M" "TOGGLEWORLDMAP" "B" "NONE"} (b/load-bindings root))
+        "a newer character cache does not identify the logged-in character")
+    (is (= {"ALT-J" "TOGGLEWORLDMAP"} (b/load-bindings root char-a)))
+    (is (= {"PAD1" "TOGGLEWORLDMAP"} (b/load-bindings nil char-b)))
+    (is (= {"M" "TOGGLEWORLDMAP" "B" "NONE"} (b/load-bindings root account)))
+    (doseq [text ["" "garbled"]]
+      (spit char-a text)
+      (is (= {} (b/load-bindings root char-a)) "never merge another binding set"))
+    (is (= {} (b/load-bindings root (io/file root "missing.wtf"))))))
+
+(deftest unknown-character-never-borrows-character-only-cache
+  (let [root (temp-dir)
+        cache (io/file root "Account/A/Realm/One/bindings-cache.wtf")]
+    (io/make-parents cache)
+    (spit cache "bind J OPENALLBAGS
+")
+    (is (= {} (b/load-bindings root)))))
+
+(deftest screenshot-default-respects-rebinding
+  (is (= {:type "key" :key "print_screen"} (b/key-for {} "SCREENSHOT")))
+  (is (nil? (b/key-for {"PRINTSCREEN" "NONE"} "SCREENSHOT")))
+  (is (nil? (b/key-for {"PRINTSCREEN" "OPENALLBAGS"} "SCREENSHOT"))))

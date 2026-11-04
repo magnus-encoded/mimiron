@@ -24,7 +24,9 @@
 (def ^:private resume-phrases #{"resume chat" "resume dictation"})
 
 (def ^:private voice-actions
-  {"open spells" "TOGGLESPELLBOOK" "open spell book" "TOGGLESPELLBOOK"
+  {"screenshot" "SCREENSHOT" "take a screenshot" "SCREENSHOT"
+   "take screenshot" "SCREENSHOT"
+   "open spells" "TOGGLESPELLBOOK" "open spell book" "TOGGLESPELLBOOK"
    "open spellbook" "TOGGLESPELLBOOK"
    "open bags" "OPENALLBAGS" "open bag" "OPENALLBAGS"
    "open map" "TOGGLEWORLDMAP" "open the map" "TOGGLEWORLDMAP"})
@@ -43,31 +45,37 @@
   (some #(when (str/starts-with? said %) (channel-words (subs said (count %))))
         chat-prefixes))
 
+(defn- speech-key [key]
+  ;; No binding may turn speech into a send, even when chat was opened manually.
+  (when-not (#{"enter" "escape"} (:key key)) key))
+
 (defn speech
   "Handles one utterance. Returns [state actions]."
   [{:keys [channel paused] :as state} bound text]
-  (let [said (normalize text)
-        ;; An open draft is cancelled before the mode changes, so a later
-        ;; Enter can never post it.
-        cancel (if (:draft state) [escape] [])]
+  (let [said (normalize text)]
     (cond
       (and channel (switch-phrases said)) [(assoc state :switching true) []]
-      (stop-phrases said) [initial cancel]
+      ;; Mode changes cannot safely close a box: it may now belong to the player.
+      (stop-phrases said) [(assoc initial :draft (:draft state)) []]
       (and channel (pause-phrases said)) [(assoc state :paused true) []]
       (and channel (resume-phrases said)) [(assoc state :paused false) []]
       (chosen-channel said) [(assoc state :channel (chosen-channel said)
-                                    :paused false :switching false :draft false) cancel]
-      ;; Keys pressed into an open chat box would only type letters there.
-      (voice-actions said) [state (if-let [k (and (not (:draft state))
-                                                  (bindings/key-for bound (voice-actions said)))]
+                                    :paused false :switching false) []]
+      ;; Screenshot can fire with a draft: PrintScreen types no character.
+      ;; Other voice actions would type letters into the open chat box.
+      (voice-actions said) [state (if-let [k (and (or (not (:draft state))
+                                                        (= "SCREENSHOT" (voice-actions said)))
+                                                  (speech-key (bindings/key-for bound (voice-actions said))))]
                                     [k] [])]
-      ;; Speech only ever drafts. A second utterance extends the open draft:
-      ;; another Enter there would post the first one without A.
+      ;; Tracking cannot tell whether the player or game closed the box.
+      ;; Open chat before every text action, including draft extensions.
       (and channel (not paused) (seq said))
-      [(assoc state :draft true)
-       (if (:draft state)
-         [{:type "text" :text (str " " (str/trim text))}]
-         [enter {:type "text" :text (str (slash channel) " " (str/trim text))}])]
+      (if-let [open (speech-key (bindings/key-for bound "OPENCHATSLASH"))]
+        [(assoc state :draft true)
+         [open {:type "text"
+                :text (str (if (:draft state) " " (str (subs (slash channel) 1) " "))
+                           (str/trim text))}]]
+        [state []])
       :else [state []])))
 
 (defn- step [channel delta]
@@ -76,8 +84,8 @@
 
 (defn button
   "Handles one button press or release. `via` is :pad for a virtual-pad override,
-  where the plugin presses Enter itself, or :request for a button request, where
-  the core sends Enter on South. Returns [state actions]."
+  where the plugin presses Enter itself, or :request for a button request.
+  The core sends Enter on request-side South; release clears its draft. Returns [state actions]."
   [{:keys [channel switching draft] :as state} via name pressed?]
   (cond
     (and switching pressed? (#{"dpad_up" "dpad_down"} name))

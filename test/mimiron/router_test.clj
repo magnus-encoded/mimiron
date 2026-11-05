@@ -39,15 +39,15 @@
 
 (deftest channel-is-sticky-and-opens-chat-first
   (let [s (say r/initial "chat with guild")]
-    (is (= [{:type "key" :key "slash"} {:type "text" :text "g one"}]
+    (is (= [{:type "key" :key "enter"} {:type "text" :text "/g one"}]
            (second (r/speech s {} "one"))))
-    (is (= [{:type "key" :key "slash"} {:type "text" :text "g two"}]
+    (is (= [{:type "key" :key "enter"} {:type "text" :text "/g two"}]
            (second (r/speech (-> s (say "one") (press :pad "south")) {} "two"))))))
 
 (deftest speech-never-posts-without-a
   (testing "a second utterance extends the draft instead of pressing Enter"
     (let [s (say r/initial "chat with party" "background talk")]
-      (is (= [{:type "key" :key "slash"} {:type "text" :text " more talk"}] (second (r/speech s {} "more talk"))))))
+      (is (= [{:type "text" :text " more talk"}] (second (r/speech s {} "more talk"))))))
   (testing "only A presses Enter on an open draft"
     (let [enter {:type "key" :key "enter"}
           s (say r/initial "chat with party" "one")]
@@ -114,7 +114,7 @@
     (is (false? (:switching s)))
     (is (true? (:draft s)))
     (is (= "party" (:channel s)))
-    (is (= [{:type "key" :key "slash"} {:type "text" :text " again"}] (second (r/speech s {} "again"))))))
+    (is (= [{:type "text" :text " again"}] (second (r/speech s {} "again"))))))
 
 (deftest mode-changes-leave-the-open-box-alone
   (let [s (say r/initial "chat with party" "hi")]
@@ -124,7 +124,7 @@
         (is (= [] actions))
         (is (:draft next))))
     ;; A channel change takes effect after the player sends or cancels this line.
-    (is (= [{:type "key" :key "slash"} {:type "text" :text " yo"}]
+    (is (= [{:type "text" :text " yo"}]
            (second (r/speech (say s "chat with guild") {} "yo"))))
     (is (= [] (second (r/speech s {} "open bags"))))))
 
@@ -158,6 +158,8 @@
     :button (apply r/button state args)
     :focus [(r/focus state (first args)) []]))
 
+(def ^:private enter-key {:type "key" :key "enter"})
+
 (deftest every-reachable-router-state-requires-a-to-send
   ;; Explore to a fixed point, rather than limiting the length of sequences.
   ;; Covers every reachable combination of channel, paused, switching and draft.
@@ -166,8 +168,12 @@
       (let [transitions (for [state pending event safety-events]
                           [state event (safety-step state event)])]
         (doseq [[state event [_ actions]] transitions]
+          ;; Speech may press Enter only to open the box: first action, no draft.
           (is (or (= [:button :pad "south" true] event)
-                    (not-any? #{ {:type "key" :key "enter"}} actions))
+                  (not-any? #{ {:type "key" :key "enter"}} (if (and (= :speech (first event))
+                                                                   (not (:draft state))
+                                                                   (= enter-key (first actions)))
+                                                            (rest actions) actions)))
                 (str "unexpected send from " state " via " event)))
         (let [visited (into seen pending)
               next-states (set (map #(first (nth % 2)) transitions))]
@@ -183,20 +189,17 @@
     (is (= [] (second (safety-step r/initial event))) (str event))))
 
 
-(deftest draft-opening-respects-bindings-and-never-sends
+(deftest opening-chat-uses-enter-not-the-slash-binding
+  ;; Enter opens the box on every layout; the slash key does not.
   (let [s (say r/initial "chat with party")]
-    (is (= [{:type "key" :key "j" :mods ["ctrl"]}
-            {:type "text" :text "p hello"}]
-           (second (r/speech s {"CTRL-J" "OPENCHATSLASH"} "hello"))))
-    (doseq [bound [{"/" "NONE"} {"ENTER" "OPENCHATSLASH"}
-                   {"SHIFT-ENTER" "OPENCHATSLASH"}]]
-      (is (= [s []] (r/speech s bound "hello"))))
+    (doseq [bound [{} {"CTRL-J" "OPENCHATSLASH"} {"/" "NONE"}]]
+      (is (= [{:type "key" :key "enter"} {:type "text" :text "/p hello"}]
+             (second (r/speech s bound "hello")))))
     (doseq [action ["OPENALLBAGS" "TOGGLEWORLDMAP" "TOGGLESPELLBOOK"]
             key ["ENTER" "SHIFT-ENTER"]
             text ["open bags" "open map" "open spells"]]
       (is (not-any? #(= "enter" (:key %))
                     (second (r/speech r/initial {key action} text)))))))
-
 
 (deftest speech-never-escapes-even-through-rebound-keys
   (doseq [channel [nil "party"]
@@ -217,22 +220,14 @@
     (is (= [] actions))
     (is (false? (:draft sent)))
     (is (false? (:switching sent)))
-    (is (= [{:type "key" :key "slash"} {:type "text" :text "p two"}]
+    (is (= [{:type "key" :key "enter"} {:type "text" :text "/p two"}]
            (second (r/speech sent {} "two"))))))
 
-(deftest stale-draft-always-opens-chat-before-text
-  ;; A closed box and an open box look identical to the router.
-  (let [stale (say r/initial "chat with party" "one")]
-    (doseq [state [stale (r/focus stale false)]
-            bound [{} {"CTRL-J" "OPENCHATSLASH"}]]
-      (is (= [(if (empty? bound)
-                {:type "key" :key "slash"}
-                {:type "key" :key "j" :mods ["ctrl"]})
-              {:type "text" :text " two"}]
-             (second (r/speech state bound "two")))))
-    (doseq [bound [{"/" "NONE"} {"ENTER" "OPENCHATSLASH"}
-                  {"ESCAPE" "OPENCHATSLASH"}]]
-      (is (= [stale []] (r/speech stale bound "two"))))))
+(deftest draft-extends-with-text-only
+  ;; With a draft the box is taken to be open: Enter would send it.
+  (let [draft (say r/initial "chat with party" "one")]
+    (doseq [state [draft (r/focus draft false)]]
+      (is (= [{:type "text" :text " two"}] (second (r/speech state {} "two")))))))
 
 (deftest screenshot-uses-one-key-and-preserves-state
   (doseq [phrase ["screenshot" "take a screenshot" "take screenshot"]

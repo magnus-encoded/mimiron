@@ -73,7 +73,12 @@
                               (= "pressed" (get-in event [:params :state]))
                               open?
                               (get-in snapshots [i :world :state :draft]))]
-           {:open? (:open? chat)
+           ;; The core sends Enter on request-side South; release clears the draft.
+           {:open? (and (:open? chat)
+                        (not (and (= "button" (:method event))
+                                  (= "south" (get-in event [:params :name]))
+                                  (= "released" (get-in event [:params :state]))
+                                  (get-in snapshots [i :world :state :draft]))))
             :ok (and ok
                      (or (:game after) (empty? actions))
                      (or (not (:sent? chat)) pad-send?)

@@ -75,15 +75,14 @@
                                                         (= "SCREENSHOT" (voice-actions said)))
                                                   (speech-key (bindings/key-for bound (voice-actions said))))]
                                     [k] [])]
-      ;; Tracking cannot tell whether the player or game closed the box.
-      ;; Open chat before every text action, including draft extensions.
+      ;; Enter opens the box on every keyboard layout; "/" is layout-dependent.
+      ;; With a draft the box is already open, so extending it sends no key:
+      ;; Enter would send the draft.
       (and channel (not paused) (seq said))
-      (if-let [open (speech-key (bindings/key-for bound "OPENCHATSLASH"))]
-        [(assoc state :draft true)
-         [open {:type "text"
-                :text (str (if (:draft state) " " (str (subs (slash channel) 1) " "))
-                           (str/trim text))}]]
-        [state []])
+      [(assoc state :draft true)
+       (if (:draft state)
+         [{:type "text" :text (str " " (str/trim text))}]
+         [enter {:type "text" :text (str (slash channel) " " (str/trim text))}])]
       :else [state []])))
 
 (defn- step [channel delta]

@@ -26,7 +26,7 @@
     (is (= {:method "pad_overrides" :params {:overrides []}} (dissoc (out 1) :jsonrpc)))
     (is (= {:method "status" :params {:text nil}} (dissoc (out 2) :jsonrpc)))
     (is (some #(= {:text "Party"} (:params %)) out))
-    (is (some #(= {:text "p hi" :type "text"} (get-in % [:result 1])) out))
+    (is (some #(= {:text "/p hi" :type "text"} (get-in % [:result 1])) out))
     (is (= {:method "actions" :params {:actions [{:type "key" :key "enter"}]}}
            (dissoc (last (filter #(= "actions" (:method %)) out)) :jsonrpc)))))
 

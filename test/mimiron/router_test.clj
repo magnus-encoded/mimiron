@@ -24,7 +24,8 @@
 (deftest heard-variants-of-the-trigger-and-channel
   (doseq [[said channel] [["cat with yells" "yell"] ["cat with yell" "yell"]
                           ["cat in party" "party"] ["chat with yelp" "yell"]
-                          ["Chat with yell." "yell"]]]
+                          ["Chat with yell." "yell"] ["chat with the say" "say"]
+                          ["chat with a party" "party"]]]
     (is (= channel (:channel (say r/initial said))) said)))
 
 (deftest plural-does-not-leave-chat-mode-on-while-in-a-channel
@@ -101,7 +102,10 @@
 
 (deftest b-cancels-a-draft-with-escape
   (let [s (say r/initial "chat with party" "hi")]
-    (is (= [{:type "key" :key "escape"}] (second (r/button s :pad "east" true))))
+    (testing "Escape only closes the box, so B empties it first"
+      (is (= [{:type "key" :key "a" :mods ["ctrl"]} {:type "key" :key "backspace"}
+              {:type "key" :key "escape"}]
+             (second (r/button s :pad "east" true)))))
     (is (= [] (second (r/button (say r/initial "chat with party") :pad "east" true))))))
 
 (deftest a-sends-the-draft

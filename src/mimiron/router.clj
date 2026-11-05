@@ -37,6 +37,9 @@
 
 (def ^:private enter {:type "key" :key "enter"})
 (def ^:private escape {:type "key" :key "escape"})
+;; Escape alone only closes the box: WoW keeps the text. B must empty it first.
+(def ^:private cancel-draft
+  [{:type "key" :key "a" :mods ["ctrl"]} {:type "key" :key "backspace"} escape])
 
 (defn normalize [text]
   (->> (str/split (str/replace (str/lower-case text) #"[^a-z0-9' ]" " ") #"\s+")
@@ -51,7 +54,9 @@
       ({"parties" "party"} word)))
 
 (defn- chosen-channel [said]
-  (some #(when (str/starts-with? said %) (channel-for (subs said (count %))))
+  (some #(when (str/starts-with? said %)
+           ;; "chat with the say": drop a heard article before the channel.
+           (channel-for (str/replace (subs said (count %)) #"^(the|a) " "")))
         chat-prefixes))
 
 (defn- speech-key [key]
@@ -100,7 +105,7 @@
     [(update state :channel step (if (= name "dpad_up") -1 1)) []]
 
     (and switching pressed? (#{"east" "start"} name)) [(assoc state :switching false) []]
-    (and draft pressed? (= name "east")) [(assoc state :draft false) [escape]]
+    (and draft pressed? (= name "east")) [(assoc state :draft false) cancel-draft]
     (and draft pressed? (= name "south") (= via :pad)) [(assoc state :draft false :switching false) [enter]]
     (and draft (not pressed?) (= name "south") (= via :request)) [(assoc state :draft false :switching false) []]
     :else [state []]))

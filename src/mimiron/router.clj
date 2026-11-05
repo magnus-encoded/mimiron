@@ -3,16 +3,17 @@
   (:require [clojure.string :as str]
             [mimiron.bindings :as bindings]))
 
-(def channels ["say" "party" "guild" "raid" "battleground"])
+(def channels ["say" "party" "guild" "raid" "battleground" "yell"])
 
 (def ^:private slash
-  {"say" "/s" "party" "/p" "guild" "/g" "raid" "/raid" "battleground" "/bg"})
+  {"say" "/s" "party" "/p" "guild" "/g" "raid" "/raid" "battleground" "/bg" "yell" "/y"})
 
 ;; Likely speech-to-text mishearings, mapped to the channel meant.
 (def ^:private channel-words
   {"say" "say" "sigh" "say"
    "party" "party" "potty" "party" "parity" "party" "pardee" "party"
-   "guild" "guild" "guilt" "guild" "gild" "guild" "yield" "guild"
+   "guild" "guild" "guilt" "guild" "gild" "guild"
+   "yell" "yell" "yelled" "yell" "yelp" "yell"
    "raid" "raid" "rate" "raid" "red" "raid"
    "battleground" "battleground" "battle ground" "battleground"
    "battlegrounds" "battleground" "bg" "battleground"})

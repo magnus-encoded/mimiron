@@ -22,8 +22,9 @@
     (is (= channel (:channel (say r/initial said))) said)))
 
 (deftest heard-variants-of-the-trigger-and-channel
-  (doseq [[said channel] [["cat with yields" "guild"] ["cat with yield" "guild"]
-                          ["cat in party" "party"] ["chat with yield" "guild"]]]
+  (doseq [[said channel] [["cat with yells" "yell"] ["cat with yell" "yell"]
+                          ["cat in party" "party"] ["chat with yelp" "yell"]
+                          ["Chat with yell." "yell"]]]
     (is (= channel (:channel (say r/initial said))) said)))
 
 (deftest plural-does-not-leave-chat-mode-on-while-in-a-channel
@@ -71,7 +72,14 @@
   (let [s (say r/initial "chat with party" "switch channel")]
     (is (= "guild" (:channel (press s :pad "dpad_down"))))
     (is (= "say" (:channel (press s :pad "dpad_up"))))
-    (is (= "battleground" (:channel (-> s (press :pad "dpad_up") (press :pad "dpad_up")))))))
+    (is (= "yell" (:channel (press (say r/initial "chat with say" "switch channel") :pad "dpad_up"))))
+    (is (= "battleground" (:channel (-> s (press :pad "dpad_up") (press :pad "dpad_up") (press :pad "dpad_up")))))))
+
+(deftest yell-opens-chat-with-the-yell-command
+  (let [s (say r/initial "chat with yell")]
+    (is (= "yell" (:channel s)))
+    (is (= [{:type "key" :key "enter"} {:type "text" :text "/y look out"}]
+           (second (r/speech s {} "look out"))))))
 
 (deftest overrides-follow-state
   (let [chat (say r/initial "chat with party")]

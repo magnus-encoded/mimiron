@@ -3,10 +3,11 @@
   (:require [clojure.string :as str]
             [mimiron.bindings :as bindings]))
 
-(def channels ["say" "party" "guild" "raid" "battleground" "yell"])
+(def channels ["say" "party" "guild" "raid" "battleground" "yell" "general"])
 
 (def ^:private slash
-  {"say" "/s" "party" "/p" "guild" "/g" "raid" "/raid" "battleground" "/bg" "yell" "/y"})
+  {"say" "/s" "party" "/p" "guild" "/g" "raid" "/raid" "battleground" "/bg" "yell" "/y"
+   "general" "/1"})
 
 ;; Likely speech-to-text mishearings, mapped to the channel meant.
 (def ^:private channel-words
@@ -16,7 +17,9 @@
    "yell" "yell" "yelled" "yell" "yelp" "yell"
    "raid" "raid" "rate" "raid" "red" "raid"
    "battleground" "battleground" "battle ground" "battleground"
-   "battlegrounds" "battleground" "bg" "battleground"})
+   "battlegrounds" "battleground" "bg" "battleground"
+   "general" "general" "generals" "general" "general chat" "general"
+   "jeneral" "general"})
 
 ;; "cat with" is how the recogniser has heard "chat with".
 (def ^:private chat-prefixes ["chat with " "chat to " "chat in " "cat with " "cat to " "cat in " "chat "])

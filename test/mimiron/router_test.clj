@@ -73,8 +73,15 @@
   (let [s (say r/initial "chat with party" "switch channel")]
     (is (= "guild" (:channel (press s :pad "dpad_down"))))
     (is (= "say" (:channel (press s :pad "dpad_up"))))
-    (is (= "yell" (:channel (press (say r/initial "chat with say" "switch channel") :pad "dpad_up"))))
-    (is (= "battleground" (:channel (-> s (press :pad "dpad_up") (press :pad "dpad_up") (press :pad "dpad_up")))))))
+    (is (= "general" (:channel (press (say r/initial "chat with say" "switch channel") :pad "dpad_up"))))
+    (is (= "battleground" (:channel (-> s (press :pad "dpad_up") (press :pad "dpad_up") (press :pad "dpad_up") (press :pad "dpad_up")))))))
+
+(deftest general-opens-chat-with-the-numbered-channel
+  (doseq [said ["chat with general" "chat-with-general" "chat with general chat"]]
+    (let [s (say r/initial said)]
+      (is (= "general" (:channel s)) said)
+      (is (= [{:type "key" :key "enter"} {:type "text" :text "/1 hi"}]
+             (second (r/speech s {} "hi")))))))
 
 (deftest yell-opens-chat-with-the-yell-command
   (let [s (say r/initial "chat with yell")]

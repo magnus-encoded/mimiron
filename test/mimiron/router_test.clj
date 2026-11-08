@@ -23,7 +23,7 @@
 
 (deftest heard-variants-of-the-trigger-and-channel
   (doseq [[said channel] [["cat with yells" "yell"] ["cat with yell" "yell"]
-                          ["cat in party" "party"] ["chat with yelp" "yell"]
+                          ["cat in party" "party"] ["chat with yelp" "yell"] ["chat-with-yellow" "yell"]
                           ["Chat with yell." "yell"] ["chat with the say" "say"]
                           ["chat with a party" "party"]]]
     (is (= channel (:channel (say r/initial said))) said)))

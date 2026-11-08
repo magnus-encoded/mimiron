@@ -2,6 +2,7 @@
   "Tehuti plugin speaking protocol v0 over stdin and stdout."
   (:require [jsonista.core :as json]
             [mimiron.bindings :as bindings]
+            [mimiron.jev :as jev]
             [mimiron.router :as router])
   (:gen-class))
 
@@ -47,9 +48,9 @@
 
 (defn- route
   "Applies a speech, button or pad input event in game; returns [world actions]."
-  [{:keys [state bound] :as world} method params]
+  [{:keys [state bound shape] :as world} method params]
   (let [[s actions] (case method
-                      "speech" (router/speech state bound (:text params ""))
+                      "speech" (router/speech state bound (:text params "") shape)
                       "button" (router/button state :request (:name params)
                                               (= "pressed" (:state params)))
                       "pad_input" (router/button state :pad (:button params)
@@ -131,7 +132,9 @@
          "pad_input" (and (string? (:button params)) (#{"pressed" "released"} (:state params)))
          true)))
 
-(defn run [lines bound]
+(defn run
+  ([lines bound] (run lines bound identity))
+  ([lines bound shape]
   (reduce (fn [world line]
             (let [length (if (map? line) (:length line) (count line))]
               (if (> length max-line-length)
@@ -155,8 +158,8 @@
                       (catch Exception e
                         (error! (.getSimpleName (class e)) (:method msg) length)
                         world)))))))
-          {:state router/initial :bound bound :ready false :game false}
-          lines))
+          {:state router/initial :bound bound :shape shape :ready false :game false}
+          lines)))
 
 (defn -main [& _]
   (let [bound (try
@@ -166,4 +169,4 @@
                 (catch Exception e
                   (error! (.getSimpleName (class e)) nil 0)
                   {}))]
-    (run (read-lines *in*) bound)))
+    (run (read-lines *in*) bound jev/shape)))

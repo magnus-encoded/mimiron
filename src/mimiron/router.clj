@@ -14,7 +14,7 @@
   {"say" "say" "sigh" "say"
    "party" "party" "potty" "party" "parity" "party" "pardee" "party"
    "guild" "guild" "guilt" "guild" "gild" "guild"
-   "yell" "yell" "yelled" "yell" "yelp" "yell"
+   "yell" "yell" "yelled" "yell" "yelp" "yell" "yellow" "yell"
    "raid" "raid" "rate" "raid" "red" "raid"
    "battleground" "battleground" "battle ground" "battleground"
    "battlegrounds" "battleground" "bg" "battleground"
@@ -67,9 +67,12 @@
   (when-not (#{"enter" "escape"} (:key key)) key))
 
 (defn speech
-  "Handles one utterance. Returns [state actions]."
-  [{:keys [channel paused] :as state} bound text]
-  (let [said (normalize text)]
+  "Handles one utterance. Returns [state actions]. `shape` restyles a yelled
+  line (same words) before it is typed; by default the line is typed as heard."
+  ([state bound text] (speech state bound text identity))
+  ([{:keys [channel paused] :as state} bound text shape]
+  (let [said (normalize text)
+        line (fn [] (let [t (str/trim text)] (if (= "yell" channel) (shape t) t)))]
     (cond
       (and channel (switch-phrases said)) [(assoc state :switching true) []]
       ;; Mode changes cannot safely close a box: it may now belong to the player.
@@ -90,9 +93,9 @@
       (and channel (not paused) (seq said))
       [(assoc state :draft true)
        (if (:draft state)
-         [{:type "text" :text (str " " (str/trim text))}]
-         [enter {:type "text" :text (str (slash channel) " " (str/trim text))}])]
-      :else [state []])))
+         [{:type "text" :text (str " " (line))}]
+         [enter {:type "text" :text (str (slash channel) " " (line))}])]
+      :else [state []]))))
 
 (defn- step [channel delta]
   (let [i (.indexOf ^java.util.List channels channel)]

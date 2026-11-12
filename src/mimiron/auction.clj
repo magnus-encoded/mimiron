@@ -53,7 +53,7 @@
     :needs #{:mimiron :addon} :ruling :addon-acts
     :pad "Move to the gold box, A, then the on-screen keyboard."
     :alt "Game-link flag 16 (edit box focused; needs tehuti screen_probe): the digits as one text action into the focused box, no chat line. Needs its own ruling: text without the open-chat key."}
-   {:id :duration :triggers ["duration"] :slot :hours
+   {:id :duration :triggers ["listing time"] :slot :hours
     :does "Draft /mimiron ah duration <12|24|48>; A sends it; the add-on picks the duration."
     :game "Utterance: Enter plus text. A: Enter. Then the add-on sets the duration dropdown."
     :needs #{:mimiron :addon} :ruling :addon-acts

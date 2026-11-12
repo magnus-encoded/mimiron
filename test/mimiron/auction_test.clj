@@ -74,11 +74,11 @@
   (is (nil? (a/parse "set price 1 gold 2 gold"))))
 
 (deftest duration-is-twelve-twenty-four-or-forty-eight-hours
-  (doseq [[said h] [["duration 12 hours" 12] ["duration twenty four hours" 24] ["duration 48" 48]
-                    ["duration short" 12] ["duration medium" 24] ["duration long" 48]]]
+  (doseq [[said h] [["listing time 12 hours" 12] ["listing time twenty four hours" 24] ["listing time 48" 48]
+                    ["listing time short" 12] ["listing time medium" 24] ["listing time long" 48]]]
     (is (= {:id :duration :hours h} (a/parse said)) said))
-  (is (nil? (a/parse "duration 36 hours")))
-  (is (nil? (a/parse "duration"))))
+  (is (nil? (a/parse "listing time 36 hours")))
+  (is (nil? (a/parse "listing time"))))
 
 (deftest other-speech-is-not-an-auction-phrase
   (doseq [said ["hello there" "chat with party" "open bags" "roll" "screenshot" "reply"

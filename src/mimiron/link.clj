@@ -14,7 +14,10 @@
 ;; What main.clj asks tehuti to sample: the centre of each cell, from the window's top-left.
 (def watch {:x (quot cell 2) :y (quot cell 2) :step cell :count cell-count})
 
-(def ^:private flag-bits {:combat 1 :chat 2 :wants-reload 4 :busy 8})
+;; Voice flags are state only: voice chat on (an active channel in push-to-talk mode), whether
+;; it goes through Discord, and the player's push-to-talk setting. Never members or audio.
+(def ^:private flag-bits {:combat 1 :chat 2 :wants-reload 4 :busy 8
+                          :voice 16 :voice-discord 32 :keep-dictation 64})
 
 (defn- nibble [v] (-> (Math/round (/ (double v) 17.0)) long (max 0) (min 15)))
 
@@ -57,14 +60,16 @@
           end (+ 6 length)]
       (when (and (= 0x4D (b 0)) (= 0x31 (b 1)) (< end byte-count)
                  (= (b end) (mod (reduce + (subvec b 0 end)) 256)))
-        (let [text (utf8 (subvec b 6 end))
-              names (second (re-find #"^p=(.*)$" text))]
+        ;; "p=Names", or "k=KEY;p=Names" with WoW's push-to-talk binding while voice chat is on.
+        (when-let [[_ ptt-key names] (re-find #"^(?:k=([^;,]+);)?p=(.*)$" (utf8 (subvec b 6 end)))]
           (merge {:session (b 3) :revision (b 4)
                   :overflow (= "+" names)
-                  :party (if (or (str/blank? names) (= "+" names)) [] (str/split names #","))}
+                  :party (if (or (str/blank? names) (= "+" names)) [] (str/split names #","))
+                  :ptt-key ptt-key}
                  (into {} (map (fn [[k bit]] [k (pos? (bit-and bit (b 2)))]) flag-bits))))))))
 
-(def initial {:frame nil :session nil :warned-at nil :reloaded-at nil :reloading false})
+;; :last is the latest frame seen, kept over a loading screen where the strip is gone.
+(def initial {:frame nil :last nil :session nil :warned-at nil :reloaded-at nil :reloading false})
 
 ;; A reload is noticeable, so it is announced first and spaced out.
 (def warn-ms 5000)
@@ -90,7 +95,7 @@
         ;; The strip vanishes on loading screens, so the session outlives a missing frame.
         new-session? (and frame (not= (:session frame) (:session link)))
         link (cond-> (assoc link :frame frame)
-               frame (assoc :session (:session frame))
+               frame (assoc :session (:session frame) :last frame)
                new-session? (assoc :reloading false :warned-at nil)
                (and (:reloading link) (> (- now (:reloaded-at link)) reload-timeout-ms))
                (assoc :reloading false))

@@ -14,3 +14,4 @@
 | Fuzzy matching of speech a plugin parses itself ("chat with {channel}": heard as "cat with yields"). The context `[speech_matching]` only covers the context's own `[speech]` rules | missing; a protocol addition so a plugin declares patterns with slots and core does the fuzzy match, after launch. Until then Mimiron matches plurals and heard variants itself |
 | Plugin notices (feedback such as "no key bound") | missing |
 | Game link: sample a small strip of the focused game window for the plugin (`screen_probe.watch` / `screen_probe`, see docs/notes/game-link.md) | missing; drafted for tehuti 2026-11-11 |
+| Voice chat push-to-talk: route the PTT button to a held game key (`push_to_talk.route`, see docs/notes/voice-chat-ptt.md) | missing; drafted for tehuti 2026-11-12 |

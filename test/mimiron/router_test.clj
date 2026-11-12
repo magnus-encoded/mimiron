@@ -314,3 +314,11 @@
   (testing "no emotes, invites or free-form commands"
     (doseq [said ["dance" "invite arthas" "slash console gamepad" "wave"]]
       (is (= [] (second (r/speech r/initial {} said))) said))))
+
+(deftest push-to-talk-setting-is-drafted-for-a
+  (doseq [[said cmd] [["push to talk dictation" "/mimiron ptt dictation"]
+                      ["mimiron push to talk voice" "/mimiron ptt voice"]
+                      ["ptt voice" "/mimiron ptt voice"]]]
+    (is (= [{:type "key" :key "enter"} {:type "text" :text cmd}]
+           (second (r/speech r/initial {} said)))
+        said)))

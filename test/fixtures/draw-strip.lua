@@ -1,12 +1,16 @@
 -- Runs addon/Mimiron/Link.lua under a stub WoW API and prints the 64 cells it draws,
 -- as EDN [[r g b] ...] in 0..255. Regenerate the fixtures after a wire format change:
---   lua5.1 test/fixtures/draw-strip.lua addon/Mimiron/Link.lua <session> <combat 0|1> <saved 0|1> <names,...>
+--   lua5.1 test/fixtures/draw-strip.lua addon/Mimiron/Link.lua <session> <combat 0|1> <saved 0|1> <names,...> [voice]
 --   link-strip.edn                 42 1 0 Bjørn,Ana
 --   link-strip-overflow.edn        7 0 0 Aerin,Bjørn,Cassia,Dagny,Eluned,Fenwick,Gorrim,Halvard,Isolde,Jorund,Kestrel,Liora,Mordecai,Nyssa,Orrin,Peregrin,Quillon,Ragna,Sigrun,Thalric
 --   link-strip-overflow-saved.edn  8 0 1 (the same 20 names)
+--   link-strip-voice.edn           9 0 0 Ana LSHIFT,V 1 0
+-- [voice] is <ptt keys,...> <voiceProvider> <keep dictation 0|1>: an active voice channel in
+-- push-to-talk mode with that binding. Without it, voice chat is off.
 -- saved 1 means the names were written last session, so no reload is wanted.
 -- The link is off by default, so the harness turns it on as /mimiron link on would.
 local linkFile, session, combat, saved, list = arg[1], tonumber(arg[2]), arg[3] == "1", arg[4] == "1", arg[5] or ""
+local pttKeys, provider, keep = arg[6], arg[7] or "0", arg[8] == "1"
 local party = {}
 for name in string.gmatch(list, "[^,]+") do party[#party + 1] = name end
 local raid = #party > 4
@@ -40,8 +44,19 @@ function UnitAffectingCombat() return combat end
 function UnitCastingInfo() return nil end
 function UnitChannelInfo() return nil end
 math.random = function() return session end
+Enum = { CommunicationMode = { PushToTalk = 0, OpenMic = 1 } }
+C_VoiceChat = {
+    GetActiveChannelID = function() return pttKeys and 3 or nil end,
+    GetCommunicationMode = function() return 0 end,
+    GetPushToTalkBinding = function()
+        local keys = {}
+        for k in string.gmatch(pttKeys or "", "[^,]+") do keys[#keys + 1] = k end
+        return keys
+    end,
+}
+function GetCVar(name) if name == "voiceProvider" then return provider end end
 
-MimironDB = { link = true }
+MimironDB = { link = true, ptt = keep and "dictation" or nil }
 if saved then
     local names = {}
     for i, n in ipairs(party) do names[i] = n end

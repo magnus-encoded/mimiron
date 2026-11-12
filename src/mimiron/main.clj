@@ -72,19 +72,54 @@
 ;; Core features Mimiron may use. A strict core logs and drops unknown methods, and
 ;; counts them toward a plugin restart, so a notice stays unsent until the core accepts
 ;; it. "screen_probe" turns on when initialize advertises it in `options.screen_probe`
-;; (docs/notes/screen-probe-contract.md). Add "speech.hints" (dictation hotwords,
+;; (docs/notes/screen-probe-contract.md), "push_to_talk.route" with
+;; `options.push_to_talk_route` (docs/notes/voice-chat-ptt.md). Add "speech.hints" (dictation hotwords,
 ;; CAPABILITIES.md) here when seshat says it's live.
 (def live-features #{})
 
 (defn- advertised
   "Features the core offers in initialize `options`."
   [params]
-  (let [options (:options params)]
+  (let [options (:options params)
+        offered? (fn [k] (and (map? options) (some? (k options)) (not (false? (k options)))))]
     (cond-> #{}
-      (and (map? options) (some? (:screen_probe options)) (not (false? (:screen_probe options))))
-      (conj "screen_probe"))))
+      (offered? :screen_probe) (conj "screen_probe")
+      (offered? :push_to_talk_route) (conj "push_to_talk.route"))))
 
 (defn- live? [world feature] (contains? (:live-features world) feature))
+
+(def ^:private to-speech {:to "speech"})
+
+(defn- voice-ptt
+  "Voice chat state from the add-on's latest frame, when the core can both read the strip
+  and route push-to-talk; else nil. :key is WoW's push-to-talk binding as a key action,
+  nil when tehuti can't press it (a mouse button, say)."
+  [world]
+  (let [frame (get-in world [:link :last])]
+    (when (and (:game world) (live? world "screen_probe") (live? world "push_to_talk.route")
+               (:voice frame))
+      (assoc frame :key (some-> (:ptt-key frame) bindings/key-action)))))
+
+(defn ptt-route
+  "Where the core should send push-to-talk: WoW's voice chat key while voice chat is on,
+  unless the player keeps it for dictation (`/mimiron ptt dictation`). Dictation also wins
+  while a chat box or draft is open, where a held key would type into it, and while switching."
+  [world]
+  (let [v (voice-ptt world)
+        {:keys [draft switching]} (:state world)]
+    (if (and v (:key v) (not (:keep-dictation v)) (not (:chat v)) (not draft) (not switching))
+      (cond-> {:to "key" :key (get-in v [:key :key])}
+        (get-in v [:key :mods]) (assoc :mods (get-in v [:key :mods])))
+      to-speech)))
+
+(defn- ptt-status
+  "The powerline note while voice chat is on: where push-to-talk goes."
+  [world]
+  (when-let [v (voice-ptt world)]
+    (cond (not= to-speech (ptt-route world))
+          (str "PTT: voice chat" (when (:voice-discord v) " (Discord)"))
+          (:keep-dictation v) "PTT: dictation"
+          (nil? (:key v)) "PTT: dictation (voice chat key not usable)")))
 
 (defn- handle
   "Applies one core message to `world`; returns the next world. Outside the
@@ -113,7 +148,9 @@
                   (assoc :game game?
                          :launcher (and (contains? app-ids (:app_id params))
                                         (= "BattleNet - Wine Desktop" (:title params))))
-                  (update :state router/focus game?)))
+                  (update :state router/focus game?)
+                  ;; Voice chat state is re-read from the next strip after coming back.
+                  (cond-> (not game?) (assoc-in [:link :last] nil))))
     ("speech" "button" "pad_input")
     (let [[next-world actions] (if (:game world) (route world method params) [world []])]
       (if id
@@ -128,7 +165,8 @@
   [world]
   (if (:game world)
     [(router/overrides (:state world))
-     (let [parts (remove nil? [(router/status (:state world)) (link/status (:link world))])]
+     (let [parts (remove nil? [(router/status (:state world)) (link/status (:link world))
+                               (ptt-status world)])]
        (when (seq parts) (str/join " · " parts)))]
     [[] (when (:launcher world) "Start WoW with wow-forever")]))
 
@@ -165,6 +203,11 @@
         (notify! "pad_overrides" {:overrides (mapv #(hash-map :button %) o)}))
       (when (or fresh (not= s s0))
         (notify! "status" {:text s}))
+      (let [r (ptt-route after)]
+        ;; The core starts every plugin on speech, so a fresh session sends only a change.
+        (when (and (live? after "push_to_talk.route")
+                   (if fresh (not= to-speech r) (not= r (ptt-route before))))
+          (notify! "push_to_talk.route" r)))
       (let [h (hotwords after)]
         ;; The notice replaces the plugin's list, so an empty one clears it.
         (when (and (live? after "speech.hints")

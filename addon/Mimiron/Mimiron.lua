@@ -159,6 +159,25 @@ local function runProbe()
         end)
     end
 
+    -- Voice chat: state only (no members, channel names, speaking or audio). Checks which of
+    -- retail's C_VoiceChat calls WoW Forever has, for docs/notes/voice-chat-ptt.md.
+    for _, name in ipairs({"GetActiveChannelID", "GetActiveChannelType", "GetCommunicationMode",
+        "GetPushToTalkBinding", "GetPTTButtonPressedState", "IsLoggedIn", "IsEnabled"}) do
+        presence(results, "C_VoiceChat." .. name, function() return C_VoiceChat and C_VoiceChat[name] end)
+    end
+    check(results, "voice.loggedIn", function() return C_VoiceChat.IsLoggedIn() end)
+    check(results, "voice.activeChannel", function() return C_VoiceChat.GetActiveChannelID() ~= nil end)
+    check(results, "voice.activeChannelType", function() return C_VoiceChat.GetActiveChannelType() end)
+    check(results, "voice.communicationMode", function() return C_VoiceChat.GetCommunicationMode() end)
+    check(results, "voice.pttBinding", function()
+        local keys = C_VoiceChat.GetPushToTalkBinding()
+        return type(keys) == "table" and table.concat(keys, " + ") or keys
+    end)
+    check(results, "cvar.voiceProvider", function() return GetCVar("voiceProvider") end)
+    check(results, "cvar.voiceUseDiscordSettings", function() return GetCVar("voiceUseDiscordSettings") end)
+    presence(results, "C_Discord", function() return C_Discord end)
+    check(results, "C_Discord.IsEnabled", function() return C_Discord.IsEnabled() end)
+
     DEFAULT_CHAT_FRAME:AddMessage("Mimiron: probe saved as " .. key .. "; /reload to write it to disk.")
     DEFAULT_CHAT_FRAME:AddMessage("Mimiron: to identify a control, use /mimiron focus <label>, then move the cursor onto it.")
 end
@@ -249,7 +268,11 @@ SlashCmdList.MIMIRON = function(message)
     local label = string.match(message, "^%s*focus%s+(%S.-)%s*$")
     local toggle = string.match(message, "^%s*guildnames%s+(%a+)%s*$")
     local link = string.match(message, "^%s*link%s+(%a+)%s*$")
-    if link == "on" or link == "off" then
+    local ptt = string.match(message, "^%s*ptt%s+(%a+)%s*$")
+    if ptt == "voice" or ptt == "dictation" then
+        MimironLink.setPtt(ptt)
+        say("ptt " .. ptt .. ". While voice chat is on, the push-to-talk button " .. (ptt == "voice" and "talks in voice chat." or "keeps dictating chat."))
+    elseif link == "on" or link == "off" then
         MimironLink.set(link == "on")
         say("link " .. link .. ". The corner strip that tells the Mimiron plugin your party and combat state is " .. (link == "on" and "shown." or "hidden."))
     elseif toggle == "on" or toggle == "off" then
@@ -257,11 +280,12 @@ SlashCmdList.MIMIRON = function(message)
     elseif string.match(message, "^%s*guildnames%s*$") or string.match(message, "^%s*status%s*$") then
         say("guildnames " .. (guildNamesOn() and "on" or "off") .. " (default off). Use /mimiron guildnames on|off")
         say("link " .. (MimironLink.on() and "on" or "off") .. " (default off). Use /mimiron link on|off")
+        say("ptt " .. MimironLink.ptt() .. " (default voice). Use /mimiron ptt voice|dictation")
     elseif string.match(message, "^%s*probe%s*$") then
         runProbe()
     elseif label then
         runFocus(label)
     else
-        DEFAULT_CHAT_FRAME:AddMessage("Mimiron: use /mimiron guildnames on|off, /mimiron link on|off, /mimiron status, /mimiron probe, or /mimiron focus <label>")
+        DEFAULT_CHAT_FRAME:AddMessage("Mimiron: use /mimiron guildnames on|off, /mimiron link on|off, /mimiron ptt voice|dictation, /mimiron status, /mimiron probe, or /mimiron focus <label>")
     end
 end

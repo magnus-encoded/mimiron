@@ -22,8 +22,27 @@
 
 (deftest decodes-what-the-add-on-draws
   (is (= {:session 42 :revision 1 :overflow false :party ["Ana" "Bjørn"]
-          :combat true :chat false :wants-reload false :busy false}
+          :combat true :chat false :wants-reload false :busy false
+          :voice false :voice-discord false :keep-dictation false :ptt-key nil}
          (link/decode strip))))
+
+;; Drawn by Link.lua with voice chat on: an active channel in push-to-talk mode, binding
+;; LSHIFT + V, voiceProvider 1 (Discord), session 9, party Ana.
+(def voice-strip (edn/read-string (slurp "test/fixtures/link-strip-voice.edn")))
+
+(deftest decodes-voice-chat-state
+  (is (= {:session 9 :party ["Ana"] :voice true :voice-discord true :keep-dictation false
+          :ptt-key "SHIFT-V" :overflow false}
+         (select-keys (link/decode voice-strip)
+                      [:session :party :voice :voice-discord :keep-dictation :ptt-key :overflow]))))
+
+(deftest voice-fields-ride-along-with-overflow-and-old-frames
+  (is (= {:ptt-key "V" :overflow true :party [] :keep-dictation true}
+         (select-keys (link/decode (encode {:flags (+ 16 64) :payload "k=V;p=+"}))
+                      [:ptt-key :overflow :party :keep-dictation])))
+  (is (= {:ptt-key nil :party ["Ana"] :voice false}
+         (select-keys (link/decode (encode {:payload "p=Ana"})) [:ptt-key :party :voice])))
+  (is (nil? (link/decode (encode {:payload "k=V;x=1"}))) "an unknown payload is a torn frame"))
 
 (deftest tolerates-colour-drift-and-rejects-torn-frames
   (is (= ["Ana" "Bjørn"] (:party (link/decode (mapv (fn [c] (mapv #(min 255 (+ % 6)) c)) strip)))))

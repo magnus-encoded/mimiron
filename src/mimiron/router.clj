@@ -49,7 +49,10 @@
    "guild names off" "/mimiron guildnames off" "guildnames off" "/mimiron guildnames off"
    "link on" "/mimiron link on" "game link on" "/mimiron link on"
    "link off" "/mimiron link off" "game link off" "/mimiron link off"
-   "mimiron status" "/mimiron status" "mimiron probe" "/mimiron probe"})
+   "mimiron status" "/mimiron status" "mimiron probe" "/mimiron probe"
+   ;; Where push-to-talk goes while voice chat is on (docs/notes/voice-chat-ptt.md).
+   "push to talk voice" "/mimiron ptt voice" "ptt voice" "/mimiron ptt voice"
+   "push to talk dictation" "/mimiron ptt dictation" "ptt dictation" "/mimiron ptt dictation"})
 
 (defn- command-for [said]
   (or (commands said) (commands (str/replace said #"^mimiron " ""))))

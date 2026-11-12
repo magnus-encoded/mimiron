@@ -128,3 +128,37 @@
                     [8000 (probe (pop overflow))]])]
     (is (empty? (method out "actions")))
     (is (every? nil? (statuses out)))))
+
+;; Situations drawn by Link.lua: party (link-strip), battleground, solo at the auction house, solo.
+(def party (fixture "link-strip"))
+(def battleground (fixture "link-strip-battleground"))
+(def solo-ah (fixture "link-strip-solo-ah"))
+(def solo (fixture "link-strip-solo"))
+
+(defn- speech [id text] {:id id :method "speech" :params {:text text}})
+
+(defn- situation-script [init]
+  [[0 init] [0 wow]
+   [0 (speech 1 "chat with guild")]
+   [100 (probe party)]            ; first sight: recorded, the pick stays
+   [200 (probe party)]
+   [300 (probe battleground)]     ; joined a battleground
+   [400 (speech 2 "chat with guild")]
+   [500 (probe battleground)]     ; no change: the pick stays
+   [600 (probe solo-ah)]          ; left it, now at the auction house
+   [700 (speech 3 "hello there")]
+   [800 (probe blank)]            ; a loading screen changes nothing
+   [900 (probe solo)]])           ; closed the auction house
+
+(defn- reply [out id] (:result (first (filter #(= id (:id %)) out))))
+
+(deftest the-mode-follows-the-situation-end-to-end
+  (let [{:keys [out]} (fake-core (situation-script (core-init {:screen_probe "screen_probe.watch"})))]
+    (is (= [nil "Guild" "Battleground" "Guild" "Auction" "Say"] (statuses out)))
+    (is (empty? (method out "actions")) "a situation never sends game input")
+    (is (= [] (reply out 3)) "auction mode types no dictation")))
+
+(deftest without-screen-probe-the-mode-ignores-strips
+  (let [{:keys [out]} (fake-core (situation-script (core-init nil)))]
+    (is (= [nil "Guild"] (statuses out)))
+    (is (= [{:type "key" :key "enter"} {:type "text" :text "/g hello there"}] (reply out 3)))))

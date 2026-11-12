@@ -5,8 +5,13 @@
 --   link-strip-overflow.edn        7 0 0 Aerin,Bjørn,Cassia,Dagny,Eluned,Fenwick,Gorrim,Halvard,Isolde,Jorund,Kestrel,Liora,Mordecai,Nyssa,Orrin,Peregrin,Quillon,Ragna,Sigrun,Thalric
 --   link-strip-overflow-saved.edn  8 0 1 (the same 20 names)
 --   link-strip-voice.edn           9 0 0 Ana LSHIFT,V 1 0
+--   link-strip-solo-ah.edn         11 0 0 "" with STRIP_AH=1
+--   link-strip-solo.edn            11 0 0 ""
+--   link-strip-battleground.edn    12 0 0 Ana,Bjørn,Cassia,Dagny,Eluned with STRIP_BG=1
 -- [voice] is <ptt keys,...> <voiceProvider> <keep dictation 0|1>: an active voice channel in
 -- push-to-talk mode with that binding. Without it, voice chat is off.
+-- More than 4 names is a raid, 1-4 a party, none solo. STRIP_BG=1 puts the player in a
+-- battleground instance; STRIP_AH=1 fires AUCTION_HOUSE_SHOW before drawing.
 -- saved 1 means the names were written last session, so no reload is wanted.
 -- The link is off by default, so the harness turns it on as /mimiron link on would.
 local linkFile, session, combat, saved, list = arg[1], tonumber(arg[2]), arg[3] == "1", arg[4] == "1", arg[5] or ""
@@ -14,6 +19,7 @@ local pttKeys, provider, keep = arg[6], arg[7] or "0", arg[8] == "1"
 local party = {}
 for name in string.gmatch(list, "[^,]+") do party[#party + 1] = name end
 local raid = #party > 4
+local battleground, auction = os.getenv("STRIP_BG") == "1", os.getenv("STRIP_AH") == "1"
 
 local function stub() return setmetatable({}, { __index = function() return function() end end }) end
 local textures, frames = {}, {}
@@ -33,6 +39,8 @@ function CreateFrame()
 end
 function GetPhysicalScreenSize() return 1920, 1080 end
 function IsInRaid() return raid end
+function IsInGroup() return #party > 0 end
+function IsInInstance() if battleground then return true, "pvp" end return false, "none" end
 function GetNumGroupMembers() return #party end
 function GetNumSubgroupMembers() return #party end
 function UnitName(u)
@@ -65,6 +73,7 @@ if saved then
 end
 dofile(linkFile)
 frames[#frames]:fire("PLAYER_LOGIN")
+if auction then frames[#frames]:fire("AUCTION_HOUSE_SHOW") end
 
 local out = {}
 for i, t in ipairs(textures) do

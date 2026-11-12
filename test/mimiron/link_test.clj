@@ -12,9 +12,10 @@
 
 (defn- encode
   "Test-side encoder mirroring Link.lua."
-  [{:keys [flags session payload] :or {flags 0 session 1 payload "p="}}]
+  [{:keys [version flags session situation payload]
+    :or {version 0x32 flags 0 session 1 situation 0 payload "p="}}]
   (let [p (vec (.getBytes ^String payload "UTF-8"))
-        head (into [0x4D 0x31 flags session 0 (count p)] (map #(bit-and % 0xff) p))
+        head (into [0x4D version flags session 0 situation (count p)] (map #(bit-and % 0xff) p))
         bytes (conj head (mod (reduce + head) 256))
         bytes (into bytes (repeat (- link/byte-count (count bytes)) 0))
         nibbles (mapcat (fn [b] [(quot b 16) (mod b 16)]) bytes)]
@@ -22,9 +23,27 @@
 
 (deftest decodes-what-the-add-on-draws
   (is (= {:session 42 :revision 1 :overflow false :party ["Ana" "Bjørn"]
+          :group :party :auction false
           :combat true :chat false :wants-reload false :busy false
           :voice false :voice-discord false :keep-dictation false :ptt-key nil}
          (link/decode strip))))
+
+(defn- fixture [name] (edn/read-string (slurp (str "test/fixtures/" name ".edn"))))
+
+(deftest decodes-the-situation-the-add-on-draws
+  (is (= {:group :solo :auction true :party []}
+         (select-keys (link/decode (fixture "link-strip-solo-ah")) [:group :auction :party])))
+  (is (= {:group :solo :auction false}
+         (select-keys (link/decode (fixture "link-strip-solo")) [:group :auction])))
+  (is (= {:group :raid :auction false}
+         (select-keys (link/decode (fixture "link-strip-overflow")) [:group :auction])))
+  (is (= {:group :battleground :auction false :party ["Ana" "Bjørn" "Cassia" "Dagny" "Eluned"]}
+         (select-keys (link/decode (fixture "link-strip-battleground")) [:group :auction :party]))
+      "a battleground wins over the raid group it puts the player in")
+  (is (= {:group :battleground :auction true}
+         (select-keys (link/decode (encode {:situation 7})) [:group :auction])))
+  (is (nil? (link/decode (encode {:version 0x31})))
+      "a version 1 strip (no situation byte) is not read"))
 
 ;; Drawn by Link.lua with voice chat on: an active channel in push-to-talk mode, binding
 ;; LSHIFT + V, voiceProvider 1 (Discord), session 9, party Ana.

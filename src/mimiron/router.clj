@@ -57,7 +57,18 @@
 (defn- command-for [said]
   (or (commands said) (commands (str/replace said #"^mimiron " ""))))
 
-(def initial {:channel nil :paused false :switching false :draft false})
+;; :situation is the add-on's latest {:group :auction} (game link); :auction is auction mode.
+(def initial {:channel nil :paused false :switching false :draft false
+              :situation nil :auction false})
+
+;; Auction mode's voice vocabulary: a stub. Each phrase will press at most one key and needs a
+;; fair-play review and an owner ruling first (search, buy). Until then the mode only shows on
+;; the powerline and keeps dictation out of the chat box.
+(def auction-vocabulary {})
+
+;; The channel each group makes the default.
+(def ^:private situation-channels
+  {:solo "say" :party "party" :raid "raid" :battleground "battleground"})
 
 (def ^:private enter {:type "key" :key "enter"})
 (def ^:private escape {:type "key" :key "escape"})
@@ -108,18 +119,22 @@
         target (whisper-target said names)
         line (fn [] (let [t (str/trim text)] (if (= "yell" channel) (shape t) t)))]
     (cond
-      (and channel (switch-phrases said)) [(assoc state :switching true) []]
+      (and channel (switch-phrases said)) [(assoc state :switching true :auction false) []]
       ;; Mode changes cannot safely close a box: it may now belong to the player.
-      (stop-phrases said) [(assoc initial :draft (:draft state)) []]
+      ;; The situation and auction mode belong to the game, not to the chat mode.
+      (stop-phrases said) [(merge initial (select-keys state [:draft :situation :auction])) []]
       (and channel (pause-phrases said)) [(assoc state :paused true) []]
       (and channel (resume-phrases said)) [(assoc state :paused false) []]
       ;; Any "whisper ..." is a mode change; an unknown name changes nothing.
+      ;; Picking a channel also leaves auction mode: the player's pick wins until the next change.
       (nil? target) [state []]
       (not= ::none target) [(assoc state :channel "whisper" :target target
-                                   :paused false :switching false) []]
-      (reply-phrases said) [(assoc state :channel "reply" :paused false :switching false) []]
+                                   :paused false :switching false :auction false) []]
+      (reply-phrases said) [(assoc state :channel "reply" :paused false :switching false
+                                   :auction false) []]
       (chosen-channel said) [(assoc state :channel (chosen-channel said)
-                                    :paused false :switching false) []]
+                                    :paused false :switching false :auction false) []]
+      (and (:auction state) (auction-vocabulary said)) [state []]
       ;; Screenshot can fire with a draft: PrintScreen types no character.
       ;; Other voice actions would type letters into the open chat box.
       (voice-actions said) [state (if-let [k (and (or (not (:draft state))
@@ -133,8 +148,8 @@
                             [enter {:type "text" :text (command-for said)}]])
       ;; Enter opens the box on every keyboard layout; "/" is layout-dependent.
       ;; With a draft the box is already open, so extending it sends no key:
-      ;; Enter would send the draft.
-      (and channel (not paused) (seq said))
+      ;; Enter would send the draft. Auction mode types nothing into chat.
+      (and channel (not paused) (not (:auction state)) (seq said))
       [(assoc state :draft true)
        (if (:draft state)
          [{:type "text" :text (str " " (line))}]
@@ -166,10 +181,29 @@
   [state in-game?]
   (if in-game? state (assoc state :switching false)))
 
+(defn situation
+  "Follows the game link's {:group :auction}. Joining or leaving a group makes its channel the
+  default (say when solo), replacing the player's pick, but only while chat is on, and a draft
+  keeps its box. The auction house opening enters auction mode; closing it leaves it, back to the
+  channel underneath. Only changes count: the first situation seen is recorded. Mimiron's own
+  state only, never an action."
+  [state {:keys [group auction]}]
+  (let [before (:situation state)
+        regrouped? (and before group (not= group (:group before)))
+        opened? (and auction (not (:auction before)))
+        closed? (and before (not auction) (:auction before))]
+    (cond-> (assoc state :situation {:group group :auction (boolean auction)})
+      (and regrouped? (:channel state))
+      (-> (assoc :channel (situation-channels group) :switching false) (dissoc :target))
+      opened? (assoc :auction true)
+      closed? (assoc :auction false))))
+
 (defn status
-  "The powerline text: the channel, marked while paused or switching."
-  [{:keys [channel target paused switching]}]
-  (when channel
+  "The powerline text: auction mode, else the channel, marked while paused or switching."
+  [{:keys [channel target paused switching auction]}]
+  (cond
+    auction "Auction"
+    channel
     (str (str/capitalize channel)
          ;; The realm would crowd the powerline; the draft keeps it.
          (when (= "whisper" channel) (str " " (first (str/split target #"-" 2))))

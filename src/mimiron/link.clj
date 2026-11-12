@@ -21,6 +21,11 @@
 
 (defn- nibble [v] (-> (Math/round (/ (double v) 17.0)) long (max 0) (min 15)))
 
+;; The situation byte: the group in bits 0-1, the auction house in bit 2. It sets Mimiron's own
+;; mode (default chat channel, auction mode), never a game input.
+(def ^:private groups [:solo :party :raid :battleground])
+(def ^:private auction-bit 4)
+
 ;; Cell 0 always draws 'M' 0x3: nibbles 4, 13, 3, i.e. [68 221 51]. A uniformly dimmed
 ;; or brightened window (an unfocused tile, a gamma shift) is scaled back per channel from it.
 (def ^:private anchor [68 221 51])
@@ -56,13 +61,15 @@
   (when (and (sequential? cells) (= cell-count (count cells))
              (every? #(and (sequential? %) (<= 3 (count %)) (every? number? (take 3 %))) cells))
     (let [b (cells->bytes cells)
-          length (b 5)
-          end (+ 6 length)]
-      (when (and (= 0x4D (b 0)) (= 0x31 (b 1)) (< end byte-count)
+          length (b 6)
+          end (+ 7 length)]
+      (when (and (= 0x4D (b 0)) (= 0x32 (b 1)) (< end byte-count)
                  (= (b end) (mod (reduce + (subvec b 0 end)) 256)))
         ;; "p=Names", or "k=KEY;p=Names" with WoW's push-to-talk binding while voice chat is on.
-        (when-let [[_ ptt-key names] (re-find #"^(?:k=([^;,]+);)?p=(.*)$" (utf8 (subvec b 6 end)))]
+        (when-let [[_ ptt-key names] (re-find #"^(?:k=([^;,]+);)?p=(.*)$" (utf8 (subvec b 7 end)))]
           (merge {:session (b 3) :revision (b 4)
+                  :group (groups (bit-and 3 (b 5)))
+                  :auction (pos? (bit-and auction-bit (b 5)))
                   :overflow (= "+" names)
                   :party (if (or (str/blank? names) (= "+" names)) [] (str/split names #","))
                   :ptt-key ptt-key}

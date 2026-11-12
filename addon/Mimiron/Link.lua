@@ -5,26 +5,32 @@
 --   64 cells, each CELL x CELL physical pixels, left to right from the top-left corner.
 --   A cell carries 3 nibbles as R, G, B, each drawn as nibble * 17 / 255.
 --   Byte i is nibbles 2i (high) and 2i+1 (low); 96 bytes in all.
---   [0] 0x4D 'M'  [1] 0x31 version  [2] flags  [3] session  [4] revision  [5] length
---   [6 .. 6+length) payload, UTF-8 "p=Name,Name", or "k=KEY;p=Name,Name" while voice chat is on
---   [6+length] checksum (sum of all before, mod 256)
+--   [0] 0x4D 'M'  [1] 0x32 version  [2] flags  [3] session  [4] revision  [5] situation
+--   [6] length  [7 .. 7+length) payload, UTF-8 "p=Name,Name", or "k=KEY;p=Name,Name" while
+--   voice chat is on  [7+length] checksum (sum of all before, mod 256)
 -- Flags: 1 in combat, 2 chat box open, 4 wants a reload, 8 busy (casting, a trade or shop window,
 -- a cinematic), 16 voice chat on (an active channel in push-to-talk mode), 32 voice goes through
 -- Discord (the voiceProvider CVar), 64 the player keeps push-to-talk for dictation (/mimiron ptt).
+-- Situation: bits 0-1 the group (0 solo, 1 party, 2 raid, 3 battleground), 4 the auction house
+-- is open. Mimiron picks its default chat channel and its auction mode from it; nothing else.
 -- KEY is WoW's push-to-talk binding, e.g. "SHIFT-V". Voice state only: never members, names
 -- of channels, who is speaking, or audio.
 -- Names that don't fit go to MimironDB.linknames and set "wants a reload"; Mimiron
 -- types /reload once it is safe, then reads them from the SavedVariables file.
 
 local CELL, CELLS, BYTES = 4, 64, 96
-local MAX_PAYLOAD = BYTES - 7
+local MAX_PAYLOAD = BYTES - 8
 local FLAG_COMBAT, FLAG_CHAT, FLAG_RELOAD, FLAG_BUSY = 1, 2, 4, 8
 local FLAG_VOICE, FLAG_DISCORD, FLAG_KEEP_DICTATION = 16, 32, 64
+local GROUP_SOLO, GROUP_PARTY, GROUP_RAID, GROUP_BATTLEGROUND = 0, 1, 2, 3
+local SITUATION_AUCTION = 4
 
 local session = math.random(1, 255)
 local revision = 0
 local payload = ""
 local wantsReload = false
+-- Set by AUCTION_HOUSE_SHOW, cleared by AUCTION_HOUSE_CLOSED (C_AuctionHouse events).
+local auctionOpen = false
 
 local function db()
     if type(MimironDB) ~= "table" then MimironDB = {} end
@@ -137,8 +143,29 @@ local function flags()
     return value
 end
 
+-- A battleground wins over the raid group it puts you in; arenas count as a party.
+local function group()
+    local value = GROUP_SOLO
+    pcall(function()
+        local _, kind = IsInInstance()
+        if kind == "pvp" then value = GROUP_BATTLEGROUND
+        elseif IsInRaid() then value = GROUP_RAID
+        elseif IsInGroup() then value = GROUP_PARTY end
+    end)
+    return value
+end
+
+local function situation()
+    local value = group()
+    local open = auctionOpen
+    -- The frame is the fallback when the events differ: it is load-on-demand, so it may not exist.
+    pcall(function() open = open or shown(AuctionHouseFrame) or shown(AuctionFrame) end)
+    if open then value = value + SITUATION_AUCTION end
+    return value
+end
+
 local function encode()
-    local bytes = { 0x4D, 0x31, flags(), session, revision % 256, #payload }
+    local bytes = { 0x4D, 0x32, flags(), session, revision % 256, situation(), #payload }
     for i = 1, #payload do bytes[#bytes + 1] = string.byte(payload, i) end
     local sum = 0
     for i = 1, #bytes do sum = sum + bytes[i] end
@@ -196,10 +223,13 @@ local events = CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE",
     "UNIT_NAME_UPDATE", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "DISPLAY_SIZE_CHANGED", "UI_SCALE_CHANGED",
     "VOICE_CHAT_CHANNEL_ACTIVATED", "VOICE_CHAT_CHANNEL_DEACTIVATED", "VOICE_CHAT_CHANNEL_REMOVED",
-    "VOICE_CHAT_COMMUNICATION_MODE_CHANGED", "VOICE_CHAT_LOGIN", "VOICE_CHAT_LOGOUT", "UPDATE_BINDINGS" }) do
+    "VOICE_CHAT_COMMUNICATION_MODE_CHANGED", "VOICE_CHAT_LOGIN", "VOICE_CHAT_LOGOUT", "UPDATE_BINDINGS",
+    "AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED", "ZONE_CHANGED_NEW_AREA" }) do
     pcall(function() events:RegisterEvent(e) end)
 end
 events:SetScript("OnEvent", function(_, event)
+    if event == "AUCTION_HOUSE_SHOW" then auctionOpen = true
+    elseif event == "AUCTION_HOUSE_CLOSED" or event == "PLAYER_ENTERING_WORLD" then auctionOpen = false end
     if event == "PLAYER_LOGIN" then
         -- What was saved last session is on disk now.
         db().savedlinknames = db().linknames
@@ -208,7 +238,7 @@ events:SetScript("OnEvent", function(_, event)
     refresh()
 end)
 
--- Flags (combat, chat box, busy) change without events we can rely on; redraw a few times a second.
+-- Flags (combat, chat box, busy) and the situation change without events we can rely on; redraw a few times a second.
 local elapsed = 0
 frame:SetScript("OnUpdate", function(_, dt)
     elapsed = elapsed + dt

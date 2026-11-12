@@ -139,7 +139,10 @@
       (let [[l actions events] (link/observe (:link world) (:cells params) (:state world)
                                              ((:clock world)))
             world (cond-> (assoc world :link l)
-                    (:new-session events) (merge ((:reload-saved world))))]
+                    (:new-session events) (merge ((:reload-saved world)))
+                    ;; The group and the auction house set Mimiron's mode; a missing strip
+                    ;; (loading screen) changes nothing.
+                    (:frame l) (update :state router/situation (:frame l)))]
         (when (seq actions) (notify! "actions" {:actions actions}))
         world)
       world)
@@ -183,11 +186,12 @@
   the group (strip, else saved overflow) on party, raid, battleground, say, yell and general;
   guild names on guild. Nothing outside the game, so other apps' dictation stays clean."
   [world]
-  (let [{:keys [channel switching]} (:state world)
+  (let [{:keys [channel switching auction]} (:state world)
         frame (get-in world [:link :frame])
         party (if (and frame (not (:overflow frame))) (:party frame) (:link-names world))]
     (roster/hotwords (cond (not (:game world)) []
-                           (or (nil? channel) switching) router/channels
+                           ;; Auction mode takes no dictation; a channel name leaves it.
+                           (or (nil? channel) switching auction) router/channels
                            (= "guild" channel) (:guild-names world)
                            :else party)
                      hint-budget)))

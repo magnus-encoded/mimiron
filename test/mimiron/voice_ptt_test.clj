@@ -17,7 +17,8 @@
   "Test-side encoder mirroring Link.lua, for states the fixtures don't cover."
   [{:keys [flags session payload] :or {flags 0 session 9 payload "p="}}]
   (let [p (vec (.getBytes ^String payload "UTF-8"))
-        head (into [0x4D 0x31 flags session 0 (count p)] (map #(bit-and % 0xff) p))
+        ;; Situation 1: a party, as in the voice fixture, so no mode change rides along.
+        head (into [0x4D 0x32 flags session 0 1 (count p)] (map #(bit-and % 0xff) p))
         bytes (conj head (mod (reduce + head) 256))
         bytes (into bytes (repeat (- link/byte-count (count bytes)) 0))
         nibbles (mapcat (fn [b] [(quot b 16) (mod b 16)]) bytes)]

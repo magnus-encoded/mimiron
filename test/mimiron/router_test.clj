@@ -73,8 +73,8 @@
   (let [s (say r/initial "chat with party" "switch channel")]
     (is (= "guild" (:channel (press s :pad "dpad_down"))))
     (is (= "say" (:channel (press s :pad "dpad_up"))))
-    (is (= "general" (:channel (press (say r/initial "chat with say" "switch channel") :pad "dpad_up"))))
-    (is (= "battleground" (:channel (-> s (press :pad "dpad_up") (press :pad "dpad_up") (press :pad "dpad_up") (press :pad "dpad_up")))))))
+    (is (= "reply" (:channel (press (say r/initial "chat with say" "switch channel") :pad "dpad_up"))))
+    (is (= "yell" (:channel (-> s (press :pad "dpad_up") (press :pad "dpad_up") (press :pad "dpad_up") (press :pad "dpad_up")))))))
 
 (deftest general-opens-chat-with-the-numbered-channel
   (doseq [said ["chat with general" "chat-with-general" "chat with general chat"]]
@@ -160,7 +160,7 @@
                "chat off" "chat mode off" "pause chat" "pause dictation"
                "resume chat" "resume dictation" "open spells" "open spell book"
                "open spellbook" "open bags" "open bag" "open map" "open the map"
-               "chat with banana" "send" "enter"]]
+               "chat with banana" "send" "enter" "reply" "whisper arthas" "whisper nobody" "roll" "guild names on" "mimiron probe"]]
      [:speech text])
    (for [channel r/channels prefix ["chat with " "chat to " "chat in " "chat "]]
      [:speech (str prefix channel)])
@@ -173,7 +173,7 @@
 
 (defn- safety-step [state [kind & args]]
   (case kind
-    :speech (r/speech state {} (first args))
+    :speech (r/speech state {} (first args) identity ["Arthas"])
     :button (apply r/button state args)
     :focus [(r/focus state (first args)) []]))
 
@@ -254,3 +254,63 @@
           [cache key] [["bind CTRL-F5 SCREENSHOT" {:type "key" :key "f5" :mods ["ctrl"]}]
                        ["" {:type "key" :key "print_screen"}]]]
     (is (= [state [key]] (r/speech state (b/parse cache) phrase)))))
+
+(def ^:private names ["Arthas" "Thrall-Silvermoon"])
+
+(defn- hear [state & texts]
+  (reduce (fn [s t] (first (r/speech s {} t identity names))) state texts))
+
+(deftest whisper-drafts-to-a-known-name
+  (doseq [[said target] [["whisper arthas" "Arthas"] ["Whisper to Arthas." "Arthas"]
+                         ["whisper thrall" "Thrall-Silvermoon"]]]
+    (let [[s actions] (r/speech r/initial {} said identity names)]
+      (is (= [] actions) said)
+      (is (= (str "/w " target " on my way")
+             (:text (second (second (r/speech s {} "on my way" identity names))))) said)))
+  (is (= "Whisper Thrall" (r/status (hear r/initial "whisper thrall"))) "status drops the realm")
+  (testing "the target is sticky, and another channel ends it"
+    (let [s (-> r/initial (hear "whisper arthas" "one") (press :pad "south"))]
+      (is (= [{:type "key" :key "enter"} {:type "text" :text "/w Arthas two"}]
+             (second (r/speech s {} "two" identity names))))
+      (is (= [{:type "key" :key "enter"} {:type "text" :text "/g two"}]
+             (second (r/speech (hear s "chat with guild") {} "two" identity names)))))))
+
+(deftest whisper-to-an-unknown-name-does-nothing
+  (let [s (hear r/initial "chat with guild")]
+    (doseq [said ["whisper nobody" "whisper" "whisper arthas hello"]]
+      (is (= [s []] (r/speech s {} said identity names)) said))
+    (is (= [s []] (r/speech s {} "whisper arthas")) "no names known")))
+
+(deftest whisper-leaves-an-open-draft-alone
+  (let [s (hear r/initial "chat with party" "hi")
+        [next actions] (r/speech s {} "whisper arthas" identity names)]
+    (is (= [] actions))
+    (is (:draft next))
+    (is (= [{:type "text" :text " yo"}] (second (r/speech next {} "yo" identity names))))))
+
+(deftest reply-drafts-to-the-last-whisperer
+  (doseq [said ["reply" "Reply." "chat with reply" "chat with replies"]]
+    (let [s (say r/initial said)]
+      (is (= "reply" (:channel s)) said)
+      (is (= "Reply" (r/status s)))
+      (is (= [{:type "key" :key "enter"} {:type "text" :text "/r on my way"}]
+             (second (r/speech s {} "on my way")))))))
+
+(deftest a-command-phrase-drafts-one-whole-command-for-a
+  (doseq [[said command] [["roll" "/roll"] ["Roll the dice." "/roll"]
+                          ["reload UI" "/reload"]
+                          ["guild names on" "/mimiron guildnames on"]
+                          ["Mimiron guild names off" "/mimiron guildnames off"]
+                          ["game link off" "/mimiron link off"] ["link on" "/mimiron link on"]
+                          ["Mimiron status" "/mimiron status"] ["mimiron probe" "/mimiron probe"]]
+          state [r/initial (say r/initial "chat with guild") (say r/initial "chat with party" "pause chat")]]
+    (let [[s actions] (r/speech state {} said)]
+      (is (= [{:type "key" :key "enter"} {:type "text" :text command}] actions) said)
+      (is (:draft s))
+      (is (= (:channel state) (:channel s)) "the channel stays")
+      (is (= [{:type "key" :key "enter"}] (second (r/button s :pad "south" true))) "A sends it")))
+  (testing "nothing joins an open draft"
+    (is (= [] (second (r/speech (say r/initial "chat with guild" "hi") {} "roll")))))
+  (testing "no emotes, invites or free-form commands"
+    (doseq [said ["dance" "invite arthas" "slash console gamepad" "wave"]]
+      (is (= [] (second (r/speech r/initial {} said))) said))))

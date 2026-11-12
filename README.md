@@ -32,6 +32,10 @@ See `CAPABILITIES.md` for what Mimiron still needs from Tehuti.
 Mimiron keeps no message history and never logs your words. It does not read
 other players' chat, your screen or game memory, and makes no internet
 connections. It reads your launcher and key bindings without changing them.
+One optional exception, off by default: if you type `/mimiron guildnames on` in
+game, the add-on saves your guild members' names (nothing else) so voice can
+recognise them. They stay on your computer, are never logged, and refresh only
+when you `/reload` or log out. `/mimiron guildnames off` clears them.
 
 Mimiron sends game input only while WoW has focus, in response to your voice
 or button presses. It has no automatic gameplay, timed actions or input

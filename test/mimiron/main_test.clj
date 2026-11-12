@@ -25,6 +25,8 @@
     (is (= ["button" "focus" "speech"] (get-in out [0 :result :events])))
     (is (= {:method "pad_overrides" :params {:overrides []}} (dissoc (out 1) :jsonrpc)))
     (is (= {:method "status" :params {:text nil}} (dissoc (out 2) :jsonrpc)))
+    (is (not-any? #(#{"screen_probe.watch" "speech.hints"} (:method %)) out)
+        "notices the core doesn't accept yet stay unsent")
     (is (some #(= {:text "Party"} (:params %)) out))
     (is (some #(= {:text "/p hi" :type "text"} (get-in % [:result 1])) out))
     (is (= {:method "actions" :params {:actions [{:type "key" :key "enter"}]}}
@@ -146,3 +148,15 @@
              (:result (first (filter #(= 1 (:id %)) out)))))
       (is (= [] (:result (first (filter #(= 2 (:id %)) out)))))
       (is (not-any? #(= "actions" (:method %)) out)))))
+
+(deftest whisper-reaches-guild-and-party-names
+  (doseq [[guild opts] [[["Arthas"] {}] [[] {:link-names ["Arthas"]}]]]
+    (let [lines (map #(json/write-value-as-string (assoc % :jsonrpc "2.0"))
+                     [init wow {:id 1 :method "speech" :params {:text "whisper arthas"}}
+                      {:id 2 :method "speech" :params {:text "hi"}}])
+          out (->> (with-out-str (binding [*err* (java.io.StringWriter.)]
+                                   (main/run lines {} identity guild opts)))
+                   str/split-lines
+                   (mapv #(json/read-value % (json/object-mapper {:decode-key-fn true}))))]
+      (is (some #(= {:text "/w Arthas hi" :type "text"} (get-in % [:result 1])) out)
+          (pr-str opts)))))

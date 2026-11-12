@@ -1,13 +1,14 @@
 (ns mimiron.router
   "The chat router as pure functions: state in, state and actions out."
   (:require [clojure.string :as str]
-            [mimiron.bindings :as bindings]))
+            [mimiron.bindings :as bindings]
+            [mimiron.roster :as roster]))
 
-(def channels ["say" "party" "guild" "raid" "battleground" "yell" "general"])
+(def channels ["say" "party" "guild" "raid" "battleground" "yell" "general" "reply"])
 
 (def ^:private slash
   {"say" "/s" "party" "/p" "guild" "/g" "raid" "/raid" "battleground" "/bg" "yell" "/y"
-   "general" "/1"})
+   "general" "/1" "reply" "/r"})
 
 ;; Likely speech-to-text mishearings, mapped to the channel meant.
 (def ^:private channel-words
@@ -19,7 +20,8 @@
    "battleground" "battleground" "battle ground" "battleground"
    "battlegrounds" "battleground" "bg" "battleground"
    "general" "general" "generals" "general" "general chat" "general"
-   "jeneral" "general"})
+   "jeneral" "general"
+   "reply" "reply" "replies" "reply" "replay" "reply"})
 
 ;; "cat with" is how the recogniser has heard "chat with".
 (def ^:private chat-prefixes ["chat with " "chat to " "chat in " "cat with " "cat to " "cat in " "chat "])
@@ -27,6 +29,8 @@
 (def ^:private stop-phrases #{"stop chat" "stop chatting" "end chat" "chat off" "chat mode off"})
 (def ^:private pause-phrases #{"pause chat" "pause dictation"})
 (def ^:private resume-phrases #{"resume chat" "resume dictation"})
+;; Bare "reply" picks the reply channel (/r, the last whisperer), like "chat with reply".
+(def ^:private reply-phrases #{"reply" "replay"})
 
 (def ^:private voice-actions
   {"screenshot" "SCREENSHOT" "take a screenshot" "SCREENSHOT"
@@ -35,6 +39,20 @@
    "open spellbook" "TOGGLESPELLBOOK"
    "open bags" "OPENALLBAGS" "open bag" "OPENALLBAGS"
    "open map" "TOGGLEWORLDMAP" "open the map" "TOGGLEWORLDMAP"})
+
+;; Whole commands a phrase drafts for A, one each. A fixed list: no emotes or
+;; /invite (issue #2), nothing free-form. "mimiron" before a phrase is optional.
+(def ^:private commands
+  {"roll" "/roll" "roll the dice" "/roll" "roll dice" "/roll"
+   "reload ui" "/reload" "reload the ui" "/reload" "reload interface" "/reload"
+   "guild names on" "/mimiron guildnames on" "guildnames on" "/mimiron guildnames on"
+   "guild names off" "/mimiron guildnames off" "guildnames off" "/mimiron guildnames off"
+   "link on" "/mimiron link on" "game link on" "/mimiron link on"
+   "link off" "/mimiron link off" "game link off" "/mimiron link off"
+   "mimiron status" "/mimiron status" "mimiron probe" "/mimiron probe"})
+
+(defn- command-for [said]
+  (or (commands said) (commands (str/replace said #"^mimiron " ""))))
 
 (def initial {:channel nil :paused false :switching false :draft false})
 
@@ -62,16 +80,29 @@
            (channel-for (str/replace (subs said (count %)) #"^(the|a) " "")))
         chat-prefixes))
 
+(defn- whisper-target
+  "For a \"whisper <name>\" utterance, the known name meant (nil when unknown), else ::none."
+  [said names]
+  (if-let [[_ heard] (re-matches #"whisper(?: to)?(?: (.*))?" said)]
+    (roster/match-name names heard)
+    ::none))
+
+(defn- command [{:keys [channel target]}]
+  (if (= "whisper" channel) (str "/w " target) (slash channel)))
+
 (defn- speech-key [key]
   ;; No binding may turn speech into a send, even when chat was opened manually.
   (when-not (#{"enter" "escape"} (:key key)) key))
 
 (defn speech
   "Handles one utterance. Returns [state actions]. `shape` restyles a yelled
-  line (same words) before it is typed; by default the line is typed as heard."
+  line (same words) before it is typed; by default the line is typed as heard.
+  `names` (party and guild) are who \"whisper <name>\" may pick."
   ([state bound text] (speech state bound text identity))
-  ([{:keys [channel paused] :as state} bound text shape]
+  ([state bound text shape] (speech state bound text shape []))
+  ([{:keys [channel paused] :as state} bound text shape names]
   (let [said (normalize text)
+        target (whisper-target said names)
         line (fn [] (let [t (str/trim text)] (if (= "yell" channel) (shape t) t)))]
     (cond
       (and channel (switch-phrases said)) [(assoc state :switching true) []]
@@ -79,6 +110,11 @@
       (stop-phrases said) [(assoc initial :draft (:draft state)) []]
       (and channel (pause-phrases said)) [(assoc state :paused true) []]
       (and channel (resume-phrases said)) [(assoc state :paused false) []]
+      ;; Any "whisper ..." is a mode change; an unknown name changes nothing.
+      (nil? target) [state []]
+      (not= ::none target) [(assoc state :channel "whisper" :target target
+                                   :paused false :switching false) []]
+      (reply-phrases said) [(assoc state :channel "reply" :paused false :switching false) []]
       (chosen-channel said) [(assoc state :channel (chosen-channel said)
                                     :paused false :switching false) []]
       ;; Screenshot can fire with a draft: PrintScreen types no character.
@@ -87,6 +123,11 @@
                                                         (= "SCREENSHOT" (voice-actions said)))
                                                   (speech-key (bindings/key-for bound (voice-actions said))))]
                                     [k] [])]
+      ;; A command opens its own box and waits for A; it never joins an open draft.
+      (command-for said) (if (:draft state)
+                           [state []]
+                           [(assoc state :draft true)
+                            [enter {:type "text" :text (command-for said)}]])
       ;; Enter opens the box on every keyboard layout; "/" is layout-dependent.
       ;; With a draft the box is already open, so extending it sends no key:
       ;; Enter would send the draft.
@@ -94,7 +135,7 @@
       [(assoc state :draft true)
        (if (:draft state)
          [{:type "text" :text (str " " (line))}]
-         [enter {:type "text" :text (str (slash channel) " " (line))}])]
+         [enter {:type "text" :text (str (command state) " " (line))}])]
       :else [state []]))))
 
 (defn- step [channel delta]
@@ -124,9 +165,12 @@
 
 (defn status
   "The powerline text: the channel, marked while paused or switching."
-  [{:keys [channel paused switching]}]
+  [{:keys [channel target paused switching]}]
   (when channel
-    (str (str/capitalize channel) (cond switching " ↕" paused " (paused)"))))
+    (str (str/capitalize channel)
+         ;; The realm would crowd the powerline; the draft keeps it.
+         (when (= "whisper" channel) (str " " (first (str/split target #"-" 2))))
+         (cond switching " ↕" paused " (paused)"))))
 
 (defn overrides
   "The pad buttons to keep from the game in this state."

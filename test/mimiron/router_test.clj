@@ -73,8 +73,54 @@
   (let [s (say r/initial "chat with party" "switch channel")]
     (is (= "guild" (:channel (press s :pad "dpad_down"))))
     (is (= "say" (:channel (press s :pad "dpad_up"))))
-    (is (= "reply" (:channel (press (say r/initial "chat with say" "switch channel") :pad "dpad_up"))))
-    (is (= "yell" (:channel (-> s (press :pad "dpad_up") (press :pad "dpad_up") (press :pad "dpad_up") (press :pad "dpad_up")))))))
+    (is (= "instance" (:channel (press (say r/initial "chat with say" "switch channel") :pad "dpad_up"))))
+    (is (= "lfg" (:channel (-> s (press :pad "dpad_up") (press :pad "dpad_up") (press :pad "dpad_up")))))))
+
+(deftest dpad-reaches-the-new-channels-after-the-old-ones
+  (is (= ["say" "party" "guild" "raid" "battleground" "yell" "general" "reply"
+          "officer" "raid warning" "trade" "lfg" "instance"]
+         r/channels))
+  (let [s (say r/initial "chat with reply" "switch channel")]
+    (is (= ["officer" "raid warning" "trade" "lfg" "instance" "say"]
+           (map :channel (rest (reductions (fn [s _] (press s :pad "dpad_down")) s (range 6))))))))
+
+;; Channels WoW Forever lists in ChatTypeInfo (wow-ui-source, branch forever, 1.60.1):
+;; OFFICER, RAID_WARNING, INSTANCE_CHAT; trade and LFG are numbered channels.
+(deftest new-channels-open-chat-with-their-command
+  (doseq [[said channel cmd] [["chat with officer" "officer" "/o"] ["chat with officers" "officer" "/o"]
+                              ["chat with officer chat" "officer" "/o"]
+                              ["chat with raid warning" "raid warning" "/rw"]
+                              ["Chat with raid-warning." "raid warning" "/rw"]
+                              ["chat with the raid warning" "raid warning" "/rw"]
+                              ["chat with trade" "trade" "/2"] ["chat with trade chat" "trade" "/2"]
+                              ["chat with LFG" "lfg" "/4"] ["chat with L.F.G." "lfg" "/4"]
+                              ["chat with looking for group" "lfg" "/4"]
+                              ["chat with looking for a group" "lfg" "/4"]
+                              ["chat with instance" "instance" "/i"]
+                              ["chat with instance chat" "instance" "/i"]]]
+    (let [s (say r/initial said)]
+      (is (= channel (:channel s)) said)
+      (is (= [{:type "key" :key "enter"} {:type "text" :text (str cmd " hi")}]
+             (second (r/speech s {} "hi")))
+          said))))
+
+(deftest a-channel-the-player-cannot-use-still-switches
+  ;; Officer without the rank, raid warning without lead or assist: WoW answers with its
+  ;; own error. Mimiron cannot know the rank and never reads the game to find out.
+  (doseq [said ["chat with officer" "chat with raid warning"]]
+    (let [s (say (assoc r/initial :channel "say") said)]
+      (is (not= "say" (:channel s)) said)
+      (is (= [] (second (r/speech (assoc r/initial :channel "say") {} said))) said))))
+
+(deftest raid-and-raid-warning-stay-apart
+  (is (= "raid" (:channel (say r/initial "chat with raid"))))
+  (is (= "raid" (:channel (say r/initial "chat with raids"))))
+  (is (= "raid warning" (:channel (say r/initial "chat with raid warnings")))))
+
+(deftest new-channels-show-on-the-powerline
+  (is (= ["Officer" "Raid warning" "Trade" "LFG" "Instance"]
+         (map #(r/status {:channel %}) ["officer" "raid warning" "trade" "lfg" "instance"])))
+  (is (= "LFG ↕" (r/status {:channel "lfg" :switching true}))))
 
 (deftest general-opens-chat-with-the-numbered-channel
   (doseq [said ["chat with general" "chat-with-general" "chat with general chat"]]
@@ -334,6 +380,14 @@
                           ["chat with part" "party"] ["chat with replu" "reply"]]]
     (is (= channel (:channel (say r/initial said))) said)))
 
+;; Plausible mishearings of the new words, matched by sound like the old ones.
+(deftest a-misheard-new-channel-word-is-matched-by-sound
+  (doseq [[said channel] [["chat with office" "officer"] ["chat with offices" "officer"]
+                          ["chat with raid morning" "raid warning"] ["chat with rate warning" "raid warning"]
+                          ["chat with trait" "trade"] ["chat with tray" "trade"]
+                          ["chat with instant" "instance"] ["chat with instants" "instance"]]]
+    (is (= channel (:channel (say r/initial said))) said)))
+
 (deftest a-misheard-trigger-still-switches
   (doseq [[said channel] [["Check with same." "say"] ["chat would say" "say"] ["chat was sick" "say"]
                           ["chap would say" "say"] ["shut with part" "party"] ["chart with gold" "guild"]
@@ -345,7 +399,10 @@
   (doseq [said ["that was safe" "chat with you" "chat with someone" "chat with us"
                 "check with the healer" "chat later" "can we chat" "shout if you need help"
                 "chat with raid back" "red dragon on the left" "chat with the tank" "chat with me"
-                "talk to me roy" "check your bags" "shout to raid"]]
+                "talk to me roy" "check your bags" "shout to raid" "chat with the trader"
+                "chat with an officer" "chat with the traders" "chat with raid leader" "trade me"
+                "looking for group" "raid warning soon" "instance is reset"
+                "chat with out there"]]
     (let [[after actions] (r/speech (assoc r/initial :channel "say") {} said)]
       (is (= "say" (:channel after)) said)
       (is (seq actions) (str said " is typed as a line")))))
@@ -353,4 +410,8 @@
 (deftest the-mode-hotwords-are-the-trigger-and-every-channel
   (is (vector? r/mode-hotwords))
   (is (= "chat with" (first r/mode-hotwords)))
-  (is (= (set r/channels) (set (rest r/mode-hotwords)))))
+  (is (= r/channels (map r/normalize (rest r/mode-hotwords))) "in D-pad order, the old channels first")
+  (is (some #{"LFG"} r/mode-hotwords) "spelt as Whisper writes it")
+  (testing "every hotword picks its channel"
+    (doseq [[word channel] (map vector (rest r/mode-hotwords) r/channels)]
+      (is (= channel (:channel (say r/initial (str "chat with " word)))) word))))

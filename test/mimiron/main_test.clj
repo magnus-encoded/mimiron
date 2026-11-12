@@ -79,8 +79,9 @@
     (is (= main/app-ids (set (m "app_ids"))))
     (is (= #{"button" "focus" "speech"} (set (m "events"))))))
 
-(deftest launcher-hint-without-game-input
-  (let [launcher {:method "focus" :params {:app_id "steam_proton" :title "BattleNet - Wine Desktop"}}
+(deftest the-launcher-gets-no-status-and-no-game-input
+  ;; WoW starts from the Battle.net launcher's Play button, so there is no launch advice to give.
+  (let [launcher {:method "focus" :params {:app_id "steam_proton" :title "Battle.net"}}
         out (session init wow
                      {:id 1 :method "speech" :params {:text "chat with party"}}
                      {:id 2 :method "speech" :params {:text "hello"}}
@@ -89,12 +90,13 @@
                      {:id 4 :method "button" :params {:name "south" :state "pressed"}}
                      {:method "pad_input" :params {:button "south" :state "pressed"}})]
     (is (false? (main/in-game? (:params launcher))))
-    (is (= [{:overrides []} {:text "Start WoW with wow-forever"}]
+    (is (= [{:overrides []} {:text nil}]
            (mapv :params (take-last 2 (filter #(#{"pad_overrides" "status"} (:method %)) out)))))
     (is (= [[] []] (mapv :result (filter #(#{3 4} (:id %)) out))))
     (is (not-any? #(= "actions" (:method %)) out))
-    (is (= {:text nil} (:params (last (session init launcher
-                       {:method "focus" :params {:app_id "firefox" :title "BattleNet - Wine Desktop"}})))))
+    (is (not-any? #(= {:text "Start WoW with wow-forever"} (:params %))
+                  (session init {:method "focus" :params {:app_id "steam_proton"
+                                                          :title "BattleNet - Wine Desktop"}})))
     (is (= {:text "Party"} (:params (last (session init wow
                        {:id 1 :method "speech" :params {:text "chat with party"}}
                        launcher wow)))))))

@@ -3,8 +3,11 @@
     "about": "Today's mode phrases: chat with <channel>",
     "phrases": {"say": "chat with say", "party": "chat with party", "guild": "chat with guild",
                 "raid": "chat with raid", "battleground": "chat with battleground",
-                "yell": "chat with yell", "general": "chat with general", "reply": "chat with reply"},
-    "hotwords": ["chat with", "say", "party", "guild", "raid", "battleground", "yell", "general", "reply"]
+                "yell": "chat with yell", "general": "chat with general", "reply": "chat with reply",
+                "officer": "chat with officer", "raid warning": "chat with raid warning",
+                "trade": "chat with trade", "lfg": "chat with LFG", "instance": "chat with instance"},
+    "hotwords": ["chat with", "say", "party", "guild", "raid", "battleground", "yell", "general", "reply",
+                 "officer", "raid warning", "trade", "LFG", "instance"]
   },
   "names": {
     "about": "Channel names alone",

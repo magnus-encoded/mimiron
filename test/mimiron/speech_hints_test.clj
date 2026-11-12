@@ -43,6 +43,11 @@
            (hints out))
         "mode words in every mode, so a switch while chatting is primed too; names after them; cleared outside WoW")))
 
+(deftest officer-chat-is-primed-with-guild-names
+  (let [{:keys [out]} (run [(init {:speech_hints true}) wow (said 1 "chat with officer")]
+                           :guild ["Guildie"])]
+    (is (= {:scope "chat" :hotwords (conj router/mode-hotwords "Guildie")} (last (hints out))))))
+
 (deftest names-never-crowd-out-the-mode-words
   (let [guild (mapv #(str "Name" %) (range 100))
         sent (hints (:out (run [(init {:speech_hints true}) wow (said 1 "chat with guild")]

@@ -8,7 +8,8 @@ Written in Clojure, shipped as a GraalVM native binary.
 
 ## Use
 
-- "Chat with party" (say, party, guild, raid, battleground) keeps a sticky
+- "Chat with party" (say, party, guild, raid, battleground, yell, general, reply,
+  officer, raid warning, trade, LFG, instance) keeps a sticky
   channel. Each utterance opens chat and types `/p text`.
 - The powerline shows the channel: `Party`, `Party (paused)`, or `Party ↕`
   while switching.

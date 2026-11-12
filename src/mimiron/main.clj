@@ -149,9 +149,7 @@
       world)
     "focus" (let [game? (in-game? params)]
               (-> world
-                  (assoc :game game?
-                         :launcher (and (contains? app-ids (:app_id params))
-                                        (= "BattleNet - Wine Desktop" (:title params))))
+                  (assoc :game game?)
                   (update :state router/focus game?)
                   ;; Voice chat state is re-read from the next strip after coming back.
                   (cond-> (not game?) (assoc-in [:link :last] nil))))
@@ -174,7 +172,7 @@
      (let [parts (remove nil? [(router/status (:state world)) (link/status (:link world))
                                (ptt-status world)])]
        (when (seq parts) (str/join " · " parts)))]
-    [[] (when (:launcher world) "Start WoW with wow-forever")]))
+    [[] nil]))
 
 (def ^:private known-methods
   #{"initialize" "focus" "speech" "button" "pad_input" "screen_probe" "speech.hints.status"})
@@ -186,8 +184,8 @@
 (defn hotwords
   "Words to prime dictation with. In WoW always the mode words first (router/mode-hotwords:
   the trigger and every channel), since a switch is said while chatting as often as before.
-  Then the people the channel reaches: the group (strip, else saved overflow) on party, raid,
-  battleground, say, yell and general; guild names on guild. Nothing outside the game, so
+  Then the people the channel reaches: guild names on guild and officer; the group (strip,
+  else saved overflow) on every other channel. Nothing outside the game, so
   other apps' dictation stays clean."
   [world]
   (let [{:keys [channel switching auction]} (:state world)
@@ -199,7 +197,7 @@
                                (cond
                                  ;; Auction mode takes no dictation; a channel name leaves it.
                                  (or (nil? channel) switching auction) []
-                                 (= "guild" channel) (:guild-names world)
+                                 (#{"guild" "officer"} channel) (:guild-names world)
                                  :else party))
                        hint-budget))))
 

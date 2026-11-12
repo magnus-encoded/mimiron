@@ -5,11 +5,23 @@
             [mimiron.roster :as roster]
             [mimiron.sounds :as sounds]))
 
-(def channels ["say" "party" "guild" "raid" "battleground" "yell" "general" "reply"])
+(def channels
+  "In D-pad order. The newer channels follow the older ones; the order is open for the owner."
+  ["say" "party" "guild" "raid" "battleground" "yell" "general" "reply"
+   "officer" "raid warning" "trade" "lfg" "instance"])
 
+;; Officer, raid warning and instance are in WoW Forever's ChatTypeInfo (wow-ui-source, branch
+;; forever, 1.60.1). Trade and LFG are numbered channels, assumed /2 and /4. A channel the player
+;; can't use (officer without the rank, raid warning without lead or assist) still switches the
+;; mode: WoW's own error answers the line.
 (def ^:private slash
   {"say" "/s" "party" "/p" "guild" "/g" "raid" "/raid" "battleground" "/bg" "yell" "/y"
-   "general" "/1" "reply" "/r"})
+   "general" "/1" "reply" "/r" "officer" "/o" "raid warning" "/rw" "trade" "/2" "lfg" "/4"
+   "instance" "/i"})
+
+;; How a channel is spelt where it isn't plain lower case: on the powerline, and as a hotword
+;; (Whisper writes the letters as "LFG").
+(def ^:private spelt {"lfg" "LFG"})
 
 ;; Likely speech-to-text mishearings, mapped to the channel meant.
 (def ^:private channel-words
@@ -22,7 +34,13 @@
    "battlegrounds" "battleground" "bg" "battleground"
    "general" "general" "generals" "general" "general chat" "general"
    "jeneral" "general"
-   "reply" "reply" "replies" "reply" "replay" "reply"})
+   "reply" "reply" "replies" "reply" "replay" "reply"
+   "officer" "officer" "officer chat" "officer"
+   "raid warning" "raid warning" "rw" "raid warning"
+   "trade" "trade" "trade chat" "trade"
+   "lfg" "lfg" "l f g" "lfg" "lfg chat" "lfg" "looking for group" "lfg"
+   "looking for a group" "lfg"
+   "instance" "instance" "instance chat" "instance"})
 
 ;; "cat with" is how the recogniser has heard "chat with".
 (def ^:private chat-prefixes ["chat with " "chat to " "chat in " "cat with " "cat to " "cat in " "chat "])
@@ -96,15 +114,21 @@
 (def ^:private connectors #{"with" "wit" "was" "would" "will" "to" "in" "be" "we"})
 ;; Never a channel, however close it sounds ("chat with you" is a chat line).
 (def ^:private not-channels
-  #{"you" "ya" "yeah" "yes" "yo" "us" "me" "him" "her" "them" "someone" "somebody" "sis"})
+  #{"you" "ya" "yeah" "yes" "yo" "us" "me" "him" "her" "them" "someone" "somebody" "sis"
+    "trader"})
 
 ;; Spoken words the alias map could not foresee are matched by sound (mimiron.sounds),
-;; but only in the slot after a trigger, never a bare word.
-(def ^:private by-sound (zipmap channels channels))
+;; but only in the slot after a trigger, never a bare word, and only against channels of as
+;; many words as were heard: two heard words ("out there") never make a short one ("trade").
+(def ^:private by-sound
+  (reduce (fn [m c] (assoc-in m [(count (str/split c #" ")) c] c)) {} channels))
+
+(defn- closest-channel [slot]
+  (sounds/closest (by-sound (count slot) {}) (str/join " " slot)))
 
 (def mode-hotwords
-  "What tehuti primes dictation with in WoW: the trigger, then every channel."
-  (into ["chat with"] channels))
+  "What tehuti primes dictation with in WoW: the trigger, then every channel in D-pad order."
+  (into ["chat with"] (map #(spelt % %)) channels))
 
 (defn- sounds-like-a-switch
   "\"<chat-like> <connector> [the|a] <one or two words>\": the channel meant, by alias or sound."
@@ -114,7 +138,7 @@
     (when (and (chat-leads lead) (connectors connector) (<= 1 (count slot) 2))
       (let [heard (str/join " " slot)]
         (when-not (not-channels heard)
-          (or (channel-for heard) (sounds/closest by-sound heard)))))))
+          (or (channel-for heard) (closest-channel slot)))))))
 
 (defn- chosen-channel [said]
   (or (some #(when (str/starts-with? said %)
@@ -233,7 +257,7 @@
   (cond
     auction "Auction"
     channel
-    (str (str/capitalize channel)
+    (str (spelt channel (str/capitalize channel))
          ;; The realm would crowd the powerline; the draft keeps it.
          (when (= "whisper" channel) (str " " (first (str/split target #"-" 2))))
          (cond switching " ↕" paused " (paused)"))))

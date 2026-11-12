@@ -322,3 +322,35 @@
     (is (= [{:type "key" :key "enter"} {:type "text" :text cmd}]
            (second (r/speech r/initial {} said)))
         said)))
+
+;; Heard forms from the synthetic-speech evaluation (docs/notes/mode-switch-speech.md):
+;; the trigger mostly survives, the short channel word does not.
+(deftest a-misheard-channel-word-is-matched-by-sound
+  (doseq [[said channel] [["Chat with gil." "guild"] ["chat with gill" "guild"] ["chat with gold" "guild"]
+                          ["chat with killed" "guild"] ["chat with y'all" "yell"] ["chat with yale" "yell"]
+                          ["chat with yield" "yell"] ["chat with yellen" "yell"] ["chat with ray" "raid"]
+                          ["chat with rage" "raid"] ["chat with same" "say"] ["chat with safe" "say"]
+                          ["Chat with C." "say"] ["chat with sick" "say"] ["chat with battleround" "battleground"]
+                          ["chat with part" "party"] ["chat with replu" "reply"]]]
+    (is (= channel (:channel (say r/initial said))) said)))
+
+(deftest a-misheard-trigger-still-switches
+  (doseq [[said channel] [["Check with same." "say"] ["chat would say" "say"] ["chat was sick" "say"]
+                          ["chap would say" "say"] ["shut with part" "party"] ["chart with gold" "guild"]
+                          ["chet with general" "general"] ["short with general" "general"]
+                          ["shat with battleground" "battleground"] ["cat with gill" "guild"]]]
+    (is (= channel (:channel (say r/initial said))) said)))
+
+(deftest a-chat-line-that-merely-sounds-close-stays-a-line
+  (doseq [said ["that was safe" "chat with you" "chat with someone" "chat with us"
+                "check with the healer" "chat later" "can we chat" "shout if you need help"
+                "chat with raid back" "red dragon on the left" "chat with the tank" "chat with me"
+                "talk to me roy" "check your bags" "shout to raid"]]
+    (let [[after actions] (r/speech (assoc r/initial :channel "say") {} said)]
+      (is (= "say" (:channel after)) said)
+      (is (seq actions) (str said " is typed as a line")))))
+
+(deftest the-mode-hotwords-are-the-trigger-and-every-channel
+  (is (vector? r/mode-hotwords))
+  (is (= "chat with" (first r/mode-hotwords)))
+  (is (= (set r/channels) (set (rest r/mode-hotwords)))))

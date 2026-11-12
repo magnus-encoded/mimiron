@@ -73,8 +73,8 @@
 ;; counts them toward a plugin restart, so a notice stays unsent until the core accepts
 ;; it. "screen_probe" turns on when initialize advertises it in `options.screen_probe`
 ;; (docs/notes/screen-probe-contract.md), "push_to_talk.route" with
-;; `options.push_to_talk_route` (docs/notes/voice-chat-ptt.md). Add "speech.hints" (dictation hotwords,
-;; CAPABILITIES.md) here when seshat says it's live.
+;; `options.push_to_talk_route` (docs/notes/voice-chat-ptt.md), "speech.hints" (dictation hotwords,
+;; tehuti #526, docs/notes/mode-switch-speech.md) with `options.speech_hints`.
 (def live-features #{})
 
 (defn- advertised
@@ -84,7 +84,8 @@
         offered? (fn [k] (and (map? options) (some? (k options)) (not (false? (k options)))))]
     (cond-> #{}
       (offered? :screen_probe) (conj "screen_probe")
-      (offered? :push_to_talk_route) (conj "push_to_talk.route"))))
+      (offered? :push_to_talk_route) (conj "push_to_talk.route")
+      (offered? :speech_hints) (conj "speech.hints"))))
 
 (defn- live? [world feature] (contains? (:live-features world) feature))
 
@@ -160,6 +161,8 @@
         (send! {:id id :result actions})
         (when (seq actions) (notify! "actions" {:actions actions})))
       next-world)
+    ;; The core's count of hotwords kept and dropped (tehuti #526): nothing to act on.
+    "speech.hints.status" world
     (do (when id (send! {:id id :error {:code -32601 :message "Method not found"}}))
         world)))
 
@@ -174,27 +177,31 @@
     [[] (when (:launcher world) "Start WoW with wow-forever")]))
 
 (def ^:private known-methods
-  #{"initialize" "focus" "speech" "button" "pad_input" "screen_probe"})
+  #{"initialize" "focus" "speech" "button" "pad_input" "screen_probe" "speech.hints.status"})
 
 ;; Tehuti merges plugin and context hotwords under one cap of 64, so Mimiron
 ;; spends at most half and sends only what the current mode can use.
 (def hint-budget 32)
 
 (defn hotwords
-  "Words to prime dictation with, by mode. With no channel, or while switching, the channel
-  names (what the player is about to say). While chatting, the people the channel reaches:
-  the group (strip, else saved overflow) on party, raid, battleground, say, yell and general;
-  guild names on guild. Nothing outside the game, so other apps' dictation stays clean."
+  "Words to prime dictation with. In WoW always the mode words first (router/mode-hotwords:
+  the trigger and every channel), since a switch is said while chatting as often as before.
+  Then the people the channel reaches: the group (strip, else saved overflow) on party, raid,
+  battleground, say, yell and general; guild names on guild. Nothing outside the game, so
+  other apps' dictation stays clean."
   [world]
   (let [{:keys [channel switching auction]} (:state world)
         frame (get-in world [:link :frame])
         party (if (and frame (not (:overflow frame))) (:party frame) (:link-names world))]
-    (roster/hotwords (cond (not (:game world)) []
-                           ;; Auction mode takes no dictation; a channel name leaves it.
-                           (or (nil? channel) switching auction) router/channels
-                           (= "guild" channel) (:guild-names world)
-                           :else party)
-                     hint-budget)))
+    (if-not (:game world)
+      []
+      (roster/hotwords (concat router/mode-hotwords
+                               (cond
+                                 ;; Auction mode takes no dictation; a channel name leaves it.
+                                 (or (nil? channel) switching auction) []
+                                 (= "guild" channel) (:guild-names world)
+                                 :else party))
+                       hint-budget))))
 
 (defn- sync!
   "Sends overrides and status when they changed since the last message."
@@ -216,7 +223,7 @@
         ;; The notice replaces the plugin's list, so an empty one clears it.
         (when (and (live? after "speech.hints")
                    (if fresh (seq h) (not= h (hotwords before))))
-          (notify! "speech.hints" {:hotwords h}))))))
+          (notify! "speech.hints" {:scope "chat" :hotwords h}))))))
 
 (def max-line-length 65536)
 

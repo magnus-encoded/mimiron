@@ -134,10 +134,10 @@
         in-game (go "World of Warcraft")
         elsewhere (go "Elden Ring")]
     (is (some #(= {:x 2 :y 2 :step 4 :count 64} (:params %)) in-game))
-    (is (= [{:hotwords mimiron.router/channels} {:hotwords ["Ana" "Bjørn"]} {:hotwords ["Guildie"]}
-            {:hotwords mimiron.router/channels}]
+    (is (= (mapv #(hash-map :scope "chat" :hotwords (into mimiron.router/mode-hotwords %))
+                 [[] ["Ana" "Bjørn"] ["Guildie"] []])
            (mapv :params (filter #(= "speech.hints" (:method %)) in-game)))
-        "channel names until a channel is chosen, then that channel's people; back to channels on stop")
+        "mode words always, then the chosen channel's people; mode words alone again on stop")
     (is (not-any? #(= "actions" (:method %)) in-game))
     (is (not-any? #(= "speech.hints" (:method %)) elsewhere) "inert outside WoW")
     (is (every? #(<= (count (get-in % [:params :hotwords])) main/hint-budget)

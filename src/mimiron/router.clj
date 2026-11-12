@@ -2,7 +2,8 @@
   "The chat router as pure functions: state in, state and actions out."
   (:require [clojure.string :as str]
             [mimiron.bindings :as bindings]
-            [mimiron.roster :as roster]))
+            [mimiron.roster :as roster]
+            [mimiron.sounds :as sounds]))
 
 (def channels ["say" "party" "guild" "raid" "battleground" "yell" "general" "reply"])
 
@@ -12,7 +13,7 @@
 
 ;; Likely speech-to-text mishearings, mapped to the channel meant.
 (def ^:private channel-words
-  {"say" "say" "sigh" "say"
+  {"say" "say" "sigh" "say" "c" "say" "see" "say" "sea" "say"
    "party" "party" "potty" "party" "parity" "party" "pardee" "party"
    "guild" "guild" "guilt" "guild" "gild" "guild"
    "yell" "yell" "yelled" "yell" "yelp" "yell" "yellow" "yell"
@@ -88,11 +89,39 @@
       (channel-words (str/replace word #"'?s$" ""))
       ({"parties" "party"} word)))
 
+;; How the recogniser hears "chat" and "with" (docs/notes/mode-switch-speech.md). A heard
+;; "that" or "check your" is not a trigger: a lead needs a connector and a channel after it.
+(def ^:private chat-leads
+  #{"chat" "chet" "chad" "chap" "chapp" "chart" "cat" "shat" "shut" "short" "check" "jaap"})
+(def ^:private connectors #{"with" "wit" "was" "would" "will" "to" "in" "be" "we"})
+;; Never a channel, however close it sounds ("chat with you" is a chat line).
+(def ^:private not-channels
+  #{"you" "ya" "yeah" "yes" "yo" "us" "me" "him" "her" "them" "someone" "somebody" "sis"})
+
+;; Spoken words the alias map could not foresee are matched by sound (mimiron.sounds),
+;; but only in the slot after a trigger, never a bare word.
+(def ^:private by-sound (zipmap channels channels))
+
+(def mode-hotwords
+  "What tehuti primes dictation with in WoW: the trigger, then every channel."
+  (into ["chat with"] channels))
+
+(defn- sounds-like-a-switch
+  "\"<chat-like> <connector> [the|a] <one or two words>\": the channel meant, by alias or sound."
+  [said]
+  (let [[lead connector & more] (str/split said #" ")
+        slot (cond->> more (#{"the" "a"} (first more)) rest)]
+    (when (and (chat-leads lead) (connectors connector) (<= 1 (count slot) 2))
+      (let [heard (str/join " " slot)]
+        (when-not (not-channels heard)
+          (or (channel-for heard) (sounds/closest by-sound heard)))))))
+
 (defn- chosen-channel [said]
-  (some #(when (str/starts-with? said %)
-           ;; "chat with the say": drop a heard article before the channel.
-           (channel-for (str/replace (subs said (count %)) #"^(the|a) " "")))
-        chat-prefixes))
+  (or (some #(when (str/starts-with? said %)
+               ;; "chat with the say": drop a heard article before the channel.
+               (channel-for (str/replace (subs said (count %)) #"^(the|a) " "")))
+            chat-prefixes)
+      (sounds-like-a-switch said)))
 
 (defn- whisper-target
   "For a \"whisper <name>\" utterance, the known name meant (nil when unknown), else ::none."

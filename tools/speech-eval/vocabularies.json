@@ -1,0 +1,52 @@
+{
+  "current": {
+    "about": "Today's mode phrases: chat with <channel>",
+    "phrases": {"say": "chat with say", "party": "chat with party", "guild": "chat with guild",
+                "raid": "chat with raid", "battleground": "chat with battleground",
+                "yell": "chat with yell", "general": "chat with general", "reply": "chat with reply"},
+    "hotwords": ["chat with", "say", "party", "guild", "raid", "battleground", "yell", "general", "reply"]
+  },
+  "names": {
+    "about": "Channel names alone",
+    "phrases": {"say": "say", "party": "party", "guild": "guild", "raid": "raid",
+                "battleground": "battleground", "yell": "yell", "general": "general", "reply": "reply"},
+    "hotwords": ["say", "party", "guild", "raid", "battleground", "yell", "general", "reply"]
+  },
+  "names-chat": {
+    "about": "Channel name, then chat: party chat",
+    "phrases": {"say": "say chat", "party": "party chat", "guild": "guild chat", "raid": "raid chat",
+                "battleground": "battleground chat", "yell": "yell chat", "general": "general chat",
+                "reply": "reply chat"},
+    "hotwords": ["say chat", "party chat", "guild chat", "raid chat", "battleground chat",
+                 "yell chat", "general chat", "reply chat"]
+  },
+  "channel-names": {
+    "about": "Leading word channel: channel party",
+    "phrases": {"say": "channel say", "party": "channel party", "guild": "channel guild",
+                "raid": "channel raid", "battleground": "channel battleground",
+                "yell": "channel yell", "general": "channel general", "reply": "channel reply"},
+    "hotwords": ["channel", "say", "party", "guild", "raid", "battleground", "yell", "general", "reply"]
+  },
+  "distinct": {
+    "about": "Short, phonetically distinct trigger words alone",
+    "phrases": {"say": "local", "party": "group", "guild": "guild", "raid": "raid",
+                "battleground": "battleground", "yell": "shout", "general": "general",
+                "reply": "reply"},
+    "hotwords": ["local", "group", "guild", "raid", "battleground", "shout", "general", "reply"]
+  },
+  "chat-distinct": {
+    "about": "Leading word chat, then a distinct trigger word: chat group",
+    "phrases": {"say": "chat local", "party": "chat group", "guild": "chat guild",
+                "raid": "chat raid", "battleground": "chat battleground",
+                "yell": "chat shout", "general": "chat general", "reply": "chat reply"},
+    "hotwords": ["chat", "local", "group", "guild", "raid", "battleground", "shout", "general", "reply"]
+  },
+  "distinct-chat": {
+    "about": "Distinct trigger word, then chat: group chat",
+    "phrases": {"say": "local chat", "party": "group chat", "guild": "guild chat",
+                "raid": "raid chat", "battleground": "battleground chat",
+                "yell": "shout chat", "general": "general chat", "reply": "reply chat"},
+    "hotwords": ["local chat", "group chat", "guild chat", "raid chat", "battleground chat",
+                 "shout chat", "general chat", "reply chat"]
+  }
+}

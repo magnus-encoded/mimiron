@@ -140,6 +140,19 @@ local function runProbe()
         return GetMouseFocus and frameName(GetMouseFocus()) or UNKNOWN
     end)
 
+    -- The keys bound to the actions Mimiron's voice phrases press, to check the plugin's
+    -- assumed default keys (src/mimiron/bindings.clj) against the live client. Keys only.
+    for _, action in ipairs({"SCREENSHOT", "OPENCHATSLASH", "TOGGLESPELLBOOK", "OPENALLBAGS",
+        "TOGGLEWORLDMAP", "TOGGLECHARACTER0", "TOGGLECHARACTER2", "TOGGLECURRENCY",
+        "TOGGLECHARACTER4", "TOGGLETALENTS", "TOGGLEPROFESSIONBOOK", "TOGGLEQUESTLOG",
+        "TOGGLEGUILDTAB", "TOGGLESOCIAL", "TOGGLERAIDTAB", "TOGGLEGROUPFINDER",
+        "TOGGLECOLLECTIONS"}) do
+        check(results, "binding." .. action, function()
+            local keys = { GetBindingKey(action) }
+            return #keys > 0 and table.concat(keys, " | ") or "none"
+        end)
+    end
+
     -- Party name APIs: WoW Forever characters have two names; find which call carries both.
     for i = 1, 4 do
         local unit = "party" .. i

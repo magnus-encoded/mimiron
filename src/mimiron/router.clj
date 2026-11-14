@@ -51,13 +51,35 @@
 ;; Bare "reply" picks the reply channel (/r, the last whisperer), like "chat with reply".
 (def ^:private reply-phrases #{"reply" "replay"})
 
-(def ^:private voice-actions
+(def voice-action-bindings
+  "Phrase to the WoW binding action it presses, one key each. Panel actions are from WoW Forever's
+  Bindings_Camelot.xml (wow-ui-source, branch forever); their default keys are in bindings.clj."
   {"screenshot" "SCREENSHOT" "take a screenshot" "SCREENSHOT"
    "take screenshot" "SCREENSHOT"
    "open spells" "TOGGLESPELLBOOK" "open spell book" "TOGGLESPELLBOOK"
    "open spellbook" "TOGGLESPELLBOOK"
    "open bags" "OPENALLBAGS" "open bag" "OPENALLBAGS"
-   "open map" "TOGGLEWORLDMAP" "open the map" "TOGGLEWORLDMAP"})
+   "open map" "TOGGLEWORLDMAP"
+   "open character" "TOGGLECHARACTER0" "open character sheet" "TOGGLECHARACTER0"
+   "open character pane" "TOGGLECHARACTER0" "open character panel" "TOGGLECHARACTER0"
+   "open reputation" "TOGGLECHARACTER2" "open reputations" "TOGGLECHARACTER2"
+   "open currency" "TOGGLECURRENCY" "open currencies" "TOGGLECURRENCY"
+   "open honor" "TOGGLECHARACTER4" "open pvp" "TOGGLECHARACTER4" "open p v p" "TOGGLECHARACTER4"
+   "open talents" "TOGGLETALENTS" "open talent" "TOGGLETALENTS" "open talent tree" "TOGGLETALENTS"
+   "open professions" "TOGGLEPROFESSIONBOOK" "open profession book" "TOGGLEPROFESSIONBOOK"
+   "open profession" "TOGGLEPROFESSIONBOOK"
+   "open quest log" "TOGGLEQUESTLOG" "open quests" "TOGGLEQUESTLOG" "open quest" "TOGGLEQUESTLOG"
+   "open guild" "TOGGLEGUILDTAB"
+   "open friends" "TOGGLESOCIAL" "open friends list" "TOGGLESOCIAL" "open social" "TOGGLESOCIAL"
+   "open raid" "TOGGLERAIDTAB"
+   "open group finder" "TOGGLEGROUPFINDER" "open looking for group" "TOGGLEGROUPFINDER"
+   "open lfg" "TOGGLEGROUPFINDER" "open l f g" "TOGGLEGROUPFINDER"
+   "open collections" "TOGGLECOLLECTIONS" "open mounts" "TOGGLECOLLECTIONS"})
+
+(defn- voice-action
+  "The binding action a phrase presses; \"open the map\" and \"open my bags\" count too."
+  [said]
+  (voice-action-bindings (str/replace said #"^open (the|my) " "open ")))
 
 ;; Whole commands a phrase drafts for A, one each. A fixed list: no emotes or
 ;; /invite (issue #2), nothing free-form. "mimiron" before a phrase is optional.
@@ -190,10 +212,10 @@
       (and (:auction state) (auction-vocabulary said)) [state []]
       ;; Screenshot can fire with a draft: PrintScreen types no character.
       ;; Other voice actions would type letters into the open chat box.
-      (voice-actions said) [state (if-let [k (and (or (not (:draft state))
-                                                        (= "SCREENSHOT" (voice-actions said)))
-                                                  (speech-key (bindings/key-for bound (voice-actions said))))]
-                                    [k] [])]
+      (voice-action said) [state (if-let [k (and (or (not (:draft state))
+                                                       (= "SCREENSHOT" (voice-action said)))
+                                                 (speech-key (bindings/key-for bound (voice-action said))))]
+                                   [k] [])]
       ;; A command opens its own box and waits for A; it never joins an open draft.
       (command-for said) (if (:draft state)
                            [state []]

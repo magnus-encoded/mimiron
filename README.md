@@ -22,6 +22,11 @@ Written in Clojure, shipped as a GraalVM native binary.
 - "Open spells", "open bags", "open map", "screenshot" press the keys bound in
   `WTF/Account/*/bindings-cache.wtf` (read only), else WoW's defaults. The
   WTF folder comes from `~/.local/bin/wow-forever`, or `MIMIRON_WTF`.
+- The same goes for the other panels: "open character", "open reputation", "open honor"
+  (or "pvp"), "open talents", "open professions", "open quest log", "open guild",
+  "open friends" (or "social"), "open collections" (or "mounts"), and "open currency",
+  "open raid", "open group finder", which have no default key and work once bound.
+  "The" or "my" after "open" is fine. Each phrase presses one key, never into an open draft.
 
 With a `[pad] passthrough = true`, `virtual = true` context, Mimiron sets pad
 overrides only for the buttons it needs in the current state; the game gets

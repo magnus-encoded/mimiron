@@ -8,7 +8,19 @@
    "OPENCHATSLASH" "/"
    "TOGGLESPELLBOOK" "P"
    "OPENALLBAGS" "B"
-   "TOGGLEWORLDMAP" "M"})
+   "TOGGLEWORLDMAP" "M"
+   ;; Retail's default keys for the same actions [A]: WoW Forever's client defaults aren't in the
+   ;; UI source. `/mimiron probe` records the live keys (binding.* lines) to check them. Currency,
+   ;; raid and group finder have no default here: they work once the player binds them.
+   "TOGGLECHARACTER0" "C"
+   "TOGGLECHARACTER2" "U"
+   "TOGGLECHARACTER4" "H"
+   "TOGGLETALENTS" "N"
+   "TOGGLEPROFESSIONBOOK" "K"
+   "TOGGLEQUESTLOG" "L"
+   "TOGGLEGUILDTAB" "J"
+   "TOGGLESOCIAL" "O"
+   "TOGGLECOLLECTIONS" "SHIFT-P"})
 
 (def ^:private key-names
   {"PRINTSCREEN" "print_screen"

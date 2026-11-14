@@ -122,6 +122,19 @@
           (:keep-dictation v) "PTT: dictation"
           (nil? (:key v)) "PTT: dictation (voice chat key not usable)")))
 
+(declare ^:private error!)
+
+(defn- refresh-bindings
+  "The player's bindings, re-read from WoW's bindings-cache.wtf when it changed (one stat when
+  not). Called only in game; a failed read keeps the last good map."
+  [world method]
+  (if-let [reload (:reload-bindings world)]
+    (try (assoc world :bound (reload))
+         (catch Exception e
+           (error! (.getSimpleName (class e)) method 0)
+           world))
+    world))
+
 (defn- handle
   "Applies one core message to `world`; returns the next world. Outside the
   game Mimiron is inert: events change nothing and every reply is empty."
@@ -150,11 +163,17 @@
     "focus" (let [game? (in-game? params)]
               (-> world
                   (assoc :game game?)
+                  ;; Back in WoW: the player may have rebound keys in the game's own menu.
+                  (cond-> game? (refresh-bindings "focus"))
                   (update :state router/focus game?)
                   ;; Voice chat state is re-read from the next strip after coming back.
                   (cond-> (not game?) (assoc-in [:link :last] nil))))
     ("speech" "button" "pad_input")
-    (let [[next-world actions] (if (:game world) (route world method params) [world []])]
+    (let [[next-world actions] (if (:game world)
+                                 (route (cond-> world
+                                          (= "speech" method) (refresh-bindings method))
+                                        method params)
+                                 [world []])]
       (if id
         (send! {:id id :result actions})
         (when (seq actions) (notify! "actions" {:actions actions})))
@@ -291,19 +310,20 @@
           lines)))
 
 (defn -main [& _]
-  (let [bound (try
-                (if-let [cache (System/getenv "MIMIRON_BINDINGS")]
-                  (bindings/load-bindings nil cache)
-                  (bindings/load-bindings (bindings/default-wtf-root)))
-                (catch Exception e
-                  (error! (.getSimpleName (class e)) nil 0)
-                  {}))
+  (let [wtf (bindings/default-wtf-root)
+        explicit (System/getenv "MIMIRON_BINDINGS")
+        ;; WoW's own bindings-cache.wtf, read only; again on each WoW focus and phrase if it changed.
+        current-bindings (bindings/watcher #(bindings/cache-file wtf explicit))
+        bound (try (current-bindings)
+                   (catch Exception e
+                     (error! (.getSimpleName (class e)) nil 0)
+                     {}))
         ;; Guild names (opt-in add-on toggle) wait in memory until tehuti accepts
         ;; plugin hotwords (live-features); they are never logged or sent today.
-        wtf (bindings/default-wtf-root)
         saved (roster/load-saved wtf)]
     (run (read-lines *in*) bound jev/shape (:guild saved)
          {:link-names (:link saved)
+          :reload-bindings current-bindings
           ;; Evaluated on each new add-on session: the reload just wrote the file.
           :reload-saved #(let [s (roster/load-saved wtf)]
                            {:guild-names (:guild s) :link-names (:link s)})})))

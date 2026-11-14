@@ -90,7 +90,7 @@
    "guild names off" "/mimiron guildnames off" "guildnames off" "/mimiron guildnames off"
    "link on" "/mimiron link on" "game link on" "/mimiron link on"
    "link off" "/mimiron link off" "game link off" "/mimiron link off"
-   "mimiron status" "/mimiron status" "mimiron probe" "/mimiron probe"
+   "mimiron status" "/mimiron status"
    ;; Where push-to-talk goes while voice chat is on (docs/notes/voice-chat-ptt.md).
    "push to talk voice" "/mimiron ptt voice" "ptt voice" "/mimiron ptt voice"
    "push to talk dictation" "/mimiron ptt dictation" "ptt dictation" "/mimiron ptt dictation"})
@@ -190,7 +190,8 @@
   ([state bound text] (speech state bound text identity))
   ([state bound text shape] (speech state bound text shape []))
   ([{:keys [channel paused] :as state} bound text shape names]
-  (let [said (normalize text)
+  (let [state (dissoc state :notice)
+        said (normalize text)
         target (whisper-target said names)
         line (fn [] (let [t (str/trim text)] (if (= "yell" channel) (shape t) t)))]
     (cond
@@ -212,10 +213,15 @@
       (and (:auction state) (auction-vocabulary said)) [state []]
       ;; Screenshot can fire with a draft: PrintScreen types no character.
       ;; Other voice actions would type letters into the open chat box.
-      (voice-action said) [state (if-let [k (and (or (not (:draft state))
-                                                       (= "SCREENSHOT" (voice-action said)))
-                                                 (speech-key (bindings/key-for bound (voice-action said))))]
-                                   [k] [])]
+      (voice-action said)
+      (let [k (and (or (not (:draft state)) (= "SCREENSHOT" (voice-action said)))
+                   (speech-key (bindings/key-for bound (voice-action said))))]
+        (cond
+          k [state [k]]
+          ;; An open draft blocks panels on purpose; only a missing key is worth telling.
+          (:draft state) [state []]
+          :else [(assoc state :notice (str "No key bound: " (str/replace said #"^open (the |my )?" "")))
+                 []]))
       ;; A command opens its own box and waits for A; it never joins an open draft.
       (command-for said) (if (:draft state)
                            [state []]
@@ -235,7 +241,14 @@
   (let [i (.indexOf ^java.util.List channels channel)]
     (channels (mod (+ i delta) (count channels)))))
 
+(declare button*)
+
 (defn button
+  "Handles one button press or release; clears any no-key notice. See `button*`."
+  [state via name pressed?]
+  (button* (dissoc state :notice) via name pressed?))
+
+(defn- button*
   "Handles one button press or release. `via` is :pad for a virtual-pad override,
   where the plugin presses Enter itself, or :request for a button request.
   The core sends Enter on request-side South; release clears its draft. Returns [state actions]."
@@ -257,9 +270,8 @@
   (if in-game? state (assoc state :switching false)))
 
 (defn situation
-  "Follows the game link's {:group :auction}. Joining or leaving a group makes its channel the
-  default (say when solo), replacing the player's pick, but only while chat is on, and a draft
-  keeps its box. The auction house opening enters auction mode; closing it leaves it, back to the
+  "Follows the game link's {:group :auction}. Joining a group makes its channel the default only
+  while no channel is chosen (chat off); a chosen channel never moves with the group. The auction house opening enters auction mode; closing it leaves it, back to the
   channel underneath. Only changes count: the first situation seen is recorded. Mimiron's own
   state only, never an action."
   [state {:keys [group auction]}]
@@ -268,15 +280,17 @@
         opened? (and auction (not (:auction before)))
         closed? (and before (not auction) (:auction before))]
     (cond-> (assoc state :situation {:group group :auction (boolean auction)})
-      (and regrouped? (:channel state))
-      (-> (assoc :channel (situation-channels group) :switching false) (dissoc :target))
+      ;; Owner ruling (#12 Q1): a chosen channel only moves by a manual switch.
+      (and regrouped? (nil? (:channel state)) (not= :solo group))
+      (assoc :channel (situation-channels group))
       opened? (assoc :auction true)
       closed? (assoc :auction false))))
 
 (defn status
   "The powerline text: auction mode, else the channel, marked while paused or switching."
-  [{:keys [channel target paused switching auction]}]
+  [{:keys [channel target paused switching auction notice]}]
   (cond
+    notice notice
     auction "Auction"
     channel
     (str (spelt channel (str/capitalize channel))

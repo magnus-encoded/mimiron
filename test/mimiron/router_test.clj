@@ -206,7 +206,7 @@
                "chat off" "chat mode off" "pause chat" "pause dictation"
                "resume chat" "resume dictation" "open spells" "open spell book"
                "open spellbook" "open bags" "open bag" "open map" "open the map"
-               "chat with banana" "send" "enter" "reply" "whisper arthas" "whisper nobody" "roll" "guild names on" "mimiron probe"]]
+               "chat with banana" "send" "enter" "reply" "whisper arthas" "whisper nobody" "roll" "guild names on" "mimiron probe" "mimiron focus close"]]
      [:speech text])
    (for [channel r/channels prefix ["chat with " "chat to " "chat in " "chat "]]
      [:speech (str prefix channel)])
@@ -348,7 +348,7 @@
                           ["guild names on" "/mimiron guildnames on"]
                           ["Mimiron guild names off" "/mimiron guildnames off"]
                           ["game link off" "/mimiron link off"] ["link on" "/mimiron link on"]
-                          ["Mimiron status" "/mimiron status"] ["mimiron probe" "/mimiron probe"]]
+                          ["Mimiron status" "/mimiron status"]]
           state [r/initial (say r/initial "chat with guild") (say r/initial "chat with party" "pause chat")]]
     (let [[s actions] (r/speech state {} said)]
       (is (= [{:type "key" :key "enter"} {:type "text" :text command}] actions) said)
@@ -359,6 +359,9 @@
     (is (= [] (second (r/speech (say r/initial "chat with guild" "hi") {} "roll")))))
   (testing "no emotes, invites or free-form commands"
     (doseq [said ["dance" "invite arthas" "slash console gamepad" "wave"]]
+      (is (= [] (second (r/speech r/initial {} said))) said)))
+  (testing "the debug verbs are gone (owner ruling on issue #14)"
+    (doseq [said ["mimiron probe" "probe" "mimiron focus close"]]
       (is (= [] (second (r/speech r/initial {} said))) said))))
 
 (deftest push-to-talk-setting-is-drafted-for-a

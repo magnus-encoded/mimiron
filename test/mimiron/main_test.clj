@@ -162,3 +162,34 @@
                    (mapv #(json/read-value % (json/object-mapper {:decode-key-fn true}))))]
       (is (some #(= {:text "/w Arthas hi" :type "text"} (get-in % [:result 1])) out)
           (pr-str opts)))))
+
+(defn- run-with [opts & messages]
+  (let [lines (map #(json/write-value-as-string (assoc % :jsonrpc "2.0")) messages)]
+    (->> (with-out-str (binding [*err* (java.io.StringWriter.)]
+                         (main/run lines {} identity [] opts)))
+         str/split-lines
+         (mapv #(json/read-value % (json/object-mapper {:decode-key-fn true}))))))
+
+(defn- result [out id] (:result (first (filter #(= id (:id %)) out))))
+
+(deftest bindings-are-reread-on-focus-and-before-speech
+  (let [file (atom {})
+        calls (atom 0)
+        opts {:reload-bindings #(do (swap! calls inc) @file)}
+        elsewhere {:method "focus" :params {:app_id "firefox" :title "Browser"}}
+        quest {:method "speech" :params {:text "open quest log"}}
+        out (run-with opts init elsewhere (assoc quest :id 1) wow (assoc quest :id 2))]
+    (is (= [] (result out 1)) "outside WoW: nothing pressed")
+    (is (= [{:type "key" :key "l"}] (result out 2)) "no file: the default key")
+    (is (= 2 @calls) "read on WoW focus and before the phrase, never while elsewhere")
+    (reset! file {"F7" "TOGGLEQUESTLOG"})
+    (is (= [{:type "key" :key "f7"}] (result (run-with opts init wow (assoc quest :id 1)) 1))
+        "a rebind in the file is pressed without a restart")))
+
+(deftest a-failed-reread-keeps-the-last-bindings
+  (let [n (atom 0)
+        opts {:reload-bindings #(if (= 1 (swap! n inc))
+                                  {"F7" "TOGGLEQUESTLOG"}
+                                  (throw (java.io.IOException. "gone")))}
+        out (run-with opts init wow {:id 1 :method "speech" :params {:text "open quest log"}})]
+    (is (= [{:type "key" :key "f7"}] (result out 1)))))

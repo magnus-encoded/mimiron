@@ -130,3 +130,62 @@ bind M TOGGLEWORLDMAP
   (is (= {:type "key" :key "print_screen"} (b/key-for {} "SCREENSHOT")))
   (is (nil? (b/key-for {"PRINTSCREEN" "NONE"} "SCREENSHOT")))
   (is (nil? (b/key-for {"PRINTSCREEN" "OPENALLBAGS"} "SCREENSHOT"))))
+
+(deftest parse-keeps-only-key-to-action-lines
+  ;; Retail's bindings-cache.wtf format. Spell, macro, item and click bindings name the player's
+  ;; own things, so they are dropped with every other line: only `bind KEY ACTION` survives.
+  (is (= {"ESCAPE" "TOGGLEGAMEMENU" "W" "MOVEFORWARD" "ENTER" "OPENCHAT" "/" "OPENCHATSLASH"
+          "SHIFT-1" "ACTIONBUTTON1" "C" "TOGGLECHARACTER0" "F7" "TOGGLEQUESTLOG" "L" "NONE"
+          "PAD1" "TOGGLETALENTS" "ALT-N" "TOGGLETALENTS"}
+         (b/parse (slurp "test/fixtures/bindings-cache.wtf"))))
+  (is (= {} (b/parse "BINDINGMODE 0\nbind CTRL-F SPELL Fireball\nbind G MACRO My plan\n"))))
+
+(deftest fixture-rebinds-reach-the-voice-actions
+  (let [bound (b/parse (slurp "test/fixtures/bindings-cache.wtf"))]
+    (is (= {:type "key" :key "f7"} (b/key-for bound "TOGGLEQUESTLOG")) "the player's key wins")
+    (is (= {:type "key" :key "n" :mods ["alt"]} (b/key-for bound "TOGGLETALENTS")) "PAD1 skipped")
+    (is (= {:type "key" :key "c"} (b/key-for bound "TOGGLECHARACTER0")))
+    (is (= {:type "key" :key "m"} (b/key-for bound "TOGGLEWORLDMAP")) "unlisted: the default")))
+
+(deftest an-oversized-cache-is-not-read
+  (let [root (temp-dir)
+        file (io/file root "Account" "A" "bindings-cache.wtf")]
+    (io/make-parents file)
+    (spit file (apply str "bind J OPENALLBAGS\n" (repeat (inc b/max-cache-bytes) " ")))
+    (is (= {} (b/load-bindings root)))))
+
+(deftest watcher-rereads-only-when-the-file-changes
+  (let [root (temp-dir)
+        file (io/file root "Account" "A" "bindings-cache.wtf")
+        current (b/watcher #(b/cache-file root nil))]
+    (is (= {} (current)) "no cache yet: defaults")
+    (io/make-parents file)
+    (spit file "bind J OPENALLBAGS\n")
+    (.setLastModified file 100000)
+    (is (= {"J" "OPENALLBAGS"} (current)) "a new file is picked up")
+    (spit file "bind K OPENALLBAGS\n")
+    (.setLastModified file 100000)
+    (is (= {"J" "OPENALLBAGS"} (current)) "same size and time: not read again")
+    (spit file "bind F9 OPENALLBAGS\n")
+    (.setLastModified file 200000)
+    (is (= {"F9" "OPENALLBAGS"} (current)) "a rewrite is read")
+    (.delete file)
+    (is (= {} (current)) "a removed file falls back to the defaults")))
+
+(deftest watcher-follows-the-explicit-file
+  (let [root (temp-dir)
+        file (io/file root "Account" "A" "Realm" "One" "bindings-cache.wtf")
+        current (b/watcher #(b/cache-file root (str file)))]
+    (io/make-parents file)
+    (spit file "bind ALT-J TOGGLEWORLDMAP\n")
+    (is (= {"ALT-J" "TOGGLEWORLDMAP"} (current)))))
+
+(deftest watcher-never-writes
+  (let [root (temp-dir)
+        file (io/file root "Account" "A" "bindings-cache.wtf")]
+    (io/make-parents file)
+    (spit file "bind J OPENALLBAGS\n")
+    (.setLastModified file 100000)
+    ((b/watcher #(b/cache-file root nil)))
+    (is (= 100000 (.lastModified file)))
+    (is (= ["bindings-cache.wtf"] (vec (.list (.getParentFile file)))))))

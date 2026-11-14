@@ -20,7 +20,8 @@ Written in Clojure, shipped as a GraalVM native binary.
 - "Screenshot" (also "take a screenshot" or "take screenshot") takes one screenshot,
   even with a draft open or no chat channel selected.
 - "Open spells", "open bags", "open map", "screenshot" press the keys bound in
-  `WTF/Account/*/bindings-cache.wtf` (read only), else WoW's defaults. The
+  `WTF/Account/*/bindings-cache.wtf` (read only, re-read when it changes), else
+  WoW's defaults. The
   WTF folder comes from `~/.local/bin/wow-forever`, or `MIMIRON_WTF`.
 - The same goes for the other panels: "open character", "open reputation", "open honor"
   (or "pvp"), "open talents", "open professions", "open quest log", "open guild",
@@ -49,7 +50,9 @@ broadcasting, and does not modify the game client.
 ## Binding files
 
 By default Mimiron reads the newest account-level
-`_forever_/WTF/Account/<account>/bindings-cache.wtf`. Set `MIMIRON_BINDINGS`
+`_forever_/WTF/Account/<account>/bindings-cache.wtf`, WoW's own key bindings
+file. It keeps only the `bind KEY ACTION` lines; spell, macro, item and click
+bindings and everything else in the file are skipped. Set `MIMIRON_BINDINGS`
 to the exact binding file to select an account or character explicitly, for
 example `.../_forever_/WTF/Account/<account>/<realm>/<character>/bindings-cache.wtf`.
 This takes precedence over `MIMIRON_WTF` and launcher discovery. Files are
@@ -62,10 +65,15 @@ the currently logged-in character or active binding set. Modification times
 can come from another character or session. A character-selection index
 does not map to a character name in these files. Mimiron therefore never
 guesses a character from cache timestamps, even if only one character cache
-exists. The local installation checked on 2026-11-04 contained no binding
-caches at either level, so selecting a logged-in character was impossible.
+exists. The local installation checked on 2026-11-14 had an empty account
+cache and no character caches, so every voice action used the defaults.
 Use the explicit file override for character bindings and update it when
-changing characters; bindings are read once at startup.
+changing characters.
+
+Mimiron reads the file again each time WoW gets focus and before each phrase,
+but only when its path, modification time or size changed, so a key you rebind
+in WoW's Key Bindings menu works by voice without a restart. It never reads
+the file while another app has focus.
 
 `SHIFT-`, `CTRL-` and `ALT-` prefixes combine on keyboard bindings.
 `PAD*` bindings are retained when parsing but skipped when choosing a

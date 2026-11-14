@@ -68,8 +68,30 @@
   (doseq [[action k] b/default-keys]
     (is (b/key-action k) action)))
 
-(deftest the-addon-probe-reports-every-voice-action-binding
-  ;; The runtime agent checks the default keys above against the live client with /mimiron probe.
+(deftest the-addon-ships-no-debug-verbs
+  ;; Owner ruling on issue #14: /mimiron probe and /mimiron focus are gone. The player's real keys
+  ;; come from WoW's own bindings-cache.wtf (bindings.clj), not from the add-on.
   (let [lua (slurp "addon/Mimiron/Mimiron.lua")]
-    (doseq [action (set (vals r/voice-action-bindings))]
-      (is (str/includes? lua (str "\"" action "\"")) action))))
+    (doseq [gone ["runProbe" "runFocus" "/mimiron probe" "/mimiron focus" "GetBindingKey"
+                  "GetMouseFocus" "%s*probe" "%s*focus"]]
+      (is (not (str/includes? lua gone)) gone))))
+
+
+(deftest an-action-with-no-key-says-so-and-presses-nothing
+  (let [[st acts] (r/speech r/initial {} "open currency")]
+    (is (= [] acts))
+    (is (= "No key bound: currency" (r/status st)))
+    (is (= "No key bound: group finder" (r/status (first (r/speech r/initial {} "open group finder")))))))
+
+(deftest a-key-tehuti-cannot-press-says-so
+  (let [[st acts] (r/speech r/initial {"CTRL-NUMPAD1" "TOGGLECURRENCY"} "open currency")]
+    (is (= [] acts))
+    (is (= "No key bound: currency" (r/status st)))))
+
+(deftest the-notice-clears-on-the-next-utterance-or-button
+  (let [st (first (r/speech r/initial {} "open currency"))]
+    (is (nil? (r/status (first (r/speech st {} "hello")))))
+    (is (nil? (r/status (first (r/button st :pad "north" true)))))))
+
+(deftest a-bound-action-leaves-no-notice
+  (is (nil? (r/status (first (r/speech r/initial {} "open talents"))))))

@@ -1,7 +1,8 @@
 (ns mimiron.situation-test
   "Modes that follow the game link's situation: the group sets the default channel, the
   auction house sets auction mode. Mimiron's own state only, never an action."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [mimiron.router :as r]))
 
 (defn- say [state & texts]
@@ -16,30 +17,31 @@
 (def ^:private bg {:group :battleground :auction false})
 (def ^:private solo-ah {:group :solo :auction true})
 
-(deftest each-group-makes-its-channel-the-default
+(deftest a-chosen-channel-never-moves-with-the-group
   (let [chatting (seen (say r/initial "chat with guild") solo)]
-    (is (= "guild" (:channel chatting)) "the first situation seen is only recorded")
-    (is (= "party" (:channel (seen chatting party))))
-    (is (= "raid" (:channel (seen chatting party raid))) "a party turned raid")
-    (is (= "battleground" (:channel (seen chatting bg))))
-    (is (= "say" (:channel (seen chatting party solo))) "leaving falls back to say")))
+    (doseq [sits [[party] [party raid] [bg] [party solo] [party bg]]]
+      (is (= "guild" (:channel (apply seen chatting sits))) (str sits)))))
 
-(deftest a-picked-channel-stays-until-the-group-changes
-  (let [s (-> (seen (say r/initial "chat with guild") solo party)
-              (say "chat with guild"))]
-    (is (= "guild" (:channel (seen s party party))) "the same group is no change")
-    (is (= "say" (:channel (seen s solo))))))
+(deftest a-party-joined-before-a-battleground-is-kept
+  (let [s (seen (say r/initial "chat with party") solo party bg)]
+    (is (= "party" (:channel s)) "owner ruling on #12 Q1: only a manual switch moves it")
+    (is (= "battleground" (:channel (say s "chat with battleground"))))))
 
-(deftest a-group-change-replaces-a-whisper-and-ends-switching
-  (let [s (seen (first (r/speech r/initial {} "whisper ana" identity ["Ana"])) solo)
-        s (seen s party)]
-    (is (= "party" (:channel s)))
-    (is (nil? (:target s))))
-  (is (false? (:switching (seen (say r/initial "chat with guild" "switch channel") solo party)))))
+(deftest a-whisper-and-switching-survive-a-group-change
+  (let [s (seen (first (r/speech r/initial {} "whisper ana" identity ["Ana"])) solo party)]
+    (is (= "whisper" (:channel s)))
+    (is (= "ana" (str/lower-case (:target s)))))
+  (is (true? (:switching (seen (say r/initial "chat with guild" "switch channel") solo party)))))
 
-(deftest chat-off-stays-off
-  (is (nil? (:channel (seen r/initial solo party raid))))
-  (is (nil? (:channel (seen (say r/initial "chat with guild" "stop chat") solo party)))))
+(deftest with-no-channel-chosen-a-group-sets-the-default
+  (is (= "party" (:channel (seen r/initial solo party))) "entering a party")
+  (is (= "raid" (:channel (seen r/initial solo raid))))
+  (is (= "battleground" (:channel (seen r/initial solo bg))))
+  (is (= "party" (:channel (seen (say r/initial "chat with guild" "stop chat") solo party)))))
+
+(deftest with-no-channel-chosen-staying-solo-leaves-chat-off
+  (is (nil? (:channel (seen r/initial solo solo))))
+  (is (nil? (:channel (seen r/initial party))) "the first situation seen is only recorded"))
 
 (deftest a-draft-keeps-its-box
   (let [s (seen (say r/initial "chat with guild" "hello") solo)
@@ -58,8 +60,8 @@
       (is (empty? r/auction-vocabulary)))
     (testing "closing restores the previous mode"
       (is (= "Guild" (r/status (seen at-ah solo)))))
-    (testing "a group change while there lands underneath"
-      (is (= "Party" (r/status (seen at-ah {:group :party :auction true} party)))))
+    (testing "a group change never moves the channel underneath"
+      (is (= "Guild" (r/status (seen at-ah {:group :party :auction true} party)))))
     (testing "the auction house open at the first sight still counts"
       (is (= "Auction" (r/status (seen r/initial solo-ah)))))))
 

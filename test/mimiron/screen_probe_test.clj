@@ -142,7 +142,7 @@
    [0 (speech 1 "chat with guild")]
    [100 (probe party)]            ; first sight: recorded, the pick stays
    [200 (probe party)]
-   [300 (probe battleground)]     ; joined a battleground
+   [300 (probe battleground)]     ; joined a battleground: the pick stays
    [400 (speech 2 "chat with guild")]
    [500 (probe battleground)]     ; no change: the pick stays
    [600 (probe solo-ah)]          ; left it, now at the auction house
@@ -154,7 +154,7 @@
 
 (deftest the-mode-follows-the-situation-end-to-end
   (let [{:keys [out]} (fake-core (situation-script (core-init {:screen_probe "screen_probe.watch"})))]
-    (is (= [nil "Guild" "Battleground" "Guild" "Auction" "Say"] (statuses out)))
+    (is (= [nil "Guild" "Auction" "Guild"] (statuses out)))
     (is (empty? (method out "actions")) "a situation never sends game input")
     (is (= [] (reply out 3)) "auction mode types no dictation")))
 

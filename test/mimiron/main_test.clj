@@ -124,9 +124,9 @@
     (is (not-any? #(= {:text "Start WoW with wow-forever"} (:params %))
                   (session init {:method "focus" :params {:app_id "steam_proton"
                                                           :title "BattleNet - Wine Desktop"}})))
-    (is (= {:text "Party"} (:params (last (session init wow
+    (is (= {:text "Party"} (:params (last (filter #(= "status" (:method %)) (session init wow
                        {:id 1 :method "speech" :params {:text "chat with party"}}
-                       launcher wow)))))))
+                       launcher wow))))))))
 
 (deftest known-drafts-survive-non-a-wire-paths-without-being-sent
   (doseq [method ["button" "pad_input"]

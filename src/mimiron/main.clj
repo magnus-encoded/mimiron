@@ -221,11 +221,11 @@
                        hint-budget))))
 
 (defn- language
-  "The speech language to hold: Norwegian for party chat, English otherwise.
+  "The speech language to hold: Norwegian for party, guild and officer chat, English otherwise.
   Nil outside the game, where Tehuti has cleared the setting anyway."
   [world]
   (when (:game world)
-    (if (= "party" (:channel (:state world))) "no" "en")))
+    (if (#{"party" "guild" "officer"} (:channel (:state world))) "no" "en")))
 
 (defn- sync!
   "Sends overrides, status and speech language when they changed since the last message."

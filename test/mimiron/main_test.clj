@@ -85,11 +85,12 @@
 (def ^:private other
   {:method "focus" :params {:app_id "firefox" :title "Firefox"}})
 
-(deftest speech-language-follows-party
+(deftest speech-language-follows-party-and-guild
   (let [out (session init wow
                      {:id 1 :method "speech" :params {:text "chat with party"}}
                      {:id 2 :method "speech" :params {:text "hi"}}
-                     {:id 3 :method "speech" :params {:text "chat with guild"}})]
+                     {:id 3 :method "speech" :params {:text "chat with guild"}}
+                     {:id 4 :method "speech" :params {:text "chat with say"}})]
     (is (= ["en" "no" "en"] (languages out)))
     (is (= {:jsonrpc "2.0" :method "speech.language" :params {:language "no"}}
            (first (filter #(= "no" (get-in % [:params :language])) out))))))

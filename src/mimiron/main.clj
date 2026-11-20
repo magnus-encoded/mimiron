@@ -68,8 +68,15 @@
 (def ^:private known-methods
   #{"initialize" "focus" "speech" "button" "pad_input"})
 
+(defn- language
+  "The speech language to hold: Norwegian for party chat, English otherwise.
+  Nil outside the game, where Tehuti has cleared the setting anyway."
+  [world]
+  (when (:game world)
+    (if (= "party" (:channel (:state world))) "no" "en")))
+
 (defn- sync!
-  "Sends overrides and status when they changed since the last message."
+  "Sends overrides, status and speech language when they changed since the last message."
   [before after]
   (when (:ready after)
     (let [[o s] (shown after)
@@ -78,7 +85,10 @@
       (when (or fresh (not= o o0))
         (notify! "pad_overrides" {:overrides (mapv #(hash-map :button %) o)}))
       (when (or fresh (not= s s0))
-        (notify! "status" {:text s})))))
+        (notify! "status" {:text s}))
+      (let [l (language after)]
+        (when (and l (or fresh (not= l (language before))))
+          (notify! "speech.language" {:language l}))))))
 
 (defn run [lines bound]
   (reduce (fn [world line]

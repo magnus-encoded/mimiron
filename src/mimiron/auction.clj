@@ -1,78 +1,68 @@
 (ns mimiron.auction
-  "Auction mode's voice vocabulary as data, and a parser from an utterance to a phrase.
-  Parsing only: nothing here sends game input, and nothing is wired into the router yet.
-  Each phrase says what would reach the game per deliberate act and whether it needs an
-  owner ruling (docs/notes/auction-voice.md, docs/notes/fair-play.md)."
+  "Auction mode's voice vocabulary as data, a parser from an utterance to a phrase, and the
+  `/mimiron ah <verb>` line a field phrase drafts. Pure: the router drafts the line, the
+  player's A sends it, and the add-on fills one field (fair-play.md rule 4, exception 3;
+  docs/notes/auction-voice.md). No phrase buys, bids or posts."
   (:require [clojure.string :as str]))
 
 ;; A phrase: its id, the trigger words that start it (matched longest first), the slot read
-;; from the words after the trigger, what Mimiron would do, exactly what reaches the game per
-;; press, what it needs beyond Mimiron's own state, and an owner ruling it waits on (nil when
-;; none). :addon-acts means the add-on would act inside WoW's UI, beyond state sync.
-;; :pad is the way to do the same with WoW's own gamepad navigation today; :alt a route that
-;; skips the add-on but needs tehuti.
+;; from the words after the trigger, what Mimiron does, exactly what reaches the game per
+;; press, and what it needs beyond Mimiron's own state. :exception 3 marks a phrase whose
+;; line makes the add-on fill one auction house field (owner ruling 2026-11-14).
+;; :pad is the way to do the same with WoW's own gamepad navigation; :alt a route that skips
+;; the add-on but needs tehuti. Buy, bid and post are left out on purpose: they stay on WoW's
+;; own buttons, pressed with the pad.
 (def phrases
   [{:id :help :triggers ["auction help" "what can i say"] :slot :none
-    :does "Show the auction phrases on the powerline as a notice."
+    :does "Show the auction phrases on the powerline until the next utterance."
     :game "Nothing."
-    :needs #{:mimiron} :ruling nil}
+    :needs #{:mimiron}}
    {:id :leave :triggers ["leave auction" "auction off"] :slot :none
     :does "Leave auction mode for the channel underneath; the house stays open."
     :game "Nothing."
-    :needs #{:mimiron} :ruling nil}
+    :needs #{:mimiron}}
    {:id :search :triggers ["search for" "search" "look up" "lookup"] :slot :words
     :does "Draft /mimiron ah search <words>; A sends it; the add-on fills the search box and starts the search."
-    :game "Utterance: Enter, then the command as text (box left open). A: Enter. Then the add-on calls SearchBox:SetText and StartSearch."
-    :needs #{:mimiron :addon} :ruling :addon-acts
+    :game "Utterance: Enter, then the line as text (box left open). A: Enter. Then the add-on calls SearchBar:SetSearchText and StartSearch."
+    :needs #{:mimiron :addon} :exception 3
     :pad "Move to the search box, A, then the tehuti on-screen keyboard."
-    :alt "Game-link flag 16 (edit box focused; needs tehuti screen_probe): the words as one text action into the focused box, no chat line. Needs its own ruling: text without the open-chat key."}
+    :alt "Game-link flag 16 (edit box focused; needs tehuti screen_probe): the words as one text action into the focused box, no chat line. Not built: text without the open-chat key."}
    {:id :sort :triggers ["sort by"] :slot :column
-    :does "Draft /mimiron ah sort <column> [reversed]; A sends it; the add-on sorts the results."
-    :game "Utterance: Enter plus text. A: Enter. Then the add-on calls the list's SetSortOrder."
-    :needs #{:mimiron :addon} :ruling :addon-acts
+    :does "Draft /mimiron ah sort <column> [reversed]; A sends it; the add-on sorts the results once."
+    :game "Utterance: Enter plus text. A: Enter. Then the add-on calls the list's SetSortOrder at most once."
+    :needs #{:mimiron :addon} :exception 3
     :pad "Move to the column header, A (a header click sorts; again reverses)."}
    {:id :pick :triggers ["pick" "select"] :slot :ordinal
     :does "Draft /mimiron ah pick <n>; A sends it; the add-on selects the nth visible result."
-    :game "Utterance: Enter plus text. A: Enter. Then the add-on selects row n."
-    :needs #{:mimiron :addon} :ruling :addon-acts
+    :game "Utterance: Enter plus text. A: Enter. Then the add-on selects row n, as a click on it would."
+    :needs #{:mimiron :addon} :exception 3
     :pad "D-pad to the row, A."}
    {:id :quantity :triggers ["quantity"] :slot :count
     :does "Draft /mimiron ah quantity <n>; A sends it; the add-on sets the quantity box."
     :game "Utterance: Enter plus text. A: Enter. Then the add-on calls InputBox:SetNumber."
-    :needs #{:mimiron :addon} :ruling :addon-acts
+    :needs #{:mimiron :addon} :exception 3
     :pad "Move to the quantity box, A, then the on-screen keyboard."
-    :alt "Game-link flag 16 (edit box focused; needs tehuti screen_probe): the digits as one text action into the focused box, no chat line. Needs its own ruling: text without the open-chat key."}
+    :alt "Game-link flag 16 (edit box focused; needs tehuti screen_probe): the digits as one text action into the focused box, no chat line. Not built: text without the open-chat key."}
    {:id :max :triggers ["max quantity"] :slot :none
-    :does "Draft /mimiron ah max; A sends it; the add-on presses the Max button (sell only)."
-    :game "Utterance: Enter plus text. A: Enter. Then the add-on clicks MaxButton."
-    :needs #{:mimiron :addon} :ruling :addon-acts
+    :does "Draft /mimiron ah max; A sends it; the add-on sets the sell quantity to the most you can post."
+    :game "Utterance: Enter plus text. A: Enter. Then the add-on calls the sell frame's SetToMaxQuantity."
+    :needs #{:mimiron :addon} :exception 3
     :pad "Move to Max, A."}
    {:id :price :triggers ["set price"] :slot :money
     :does "Draft /mimiron ah price <copper>; A sends it; the add-on sets the sell price."
     :game "Utterance: Enter plus text. A: Enter. Then the add-on sets the price input's amount."
-    :needs #{:mimiron :addon} :ruling :addon-acts
+    :needs #{:mimiron :addon} :exception 3
     :pad "Move to the gold box, A, then the on-screen keyboard."
-    :alt "Game-link flag 16 (edit box focused; needs tehuti screen_probe): the digits as one text action into the focused box, no chat line. Needs its own ruling: text without the open-chat key."}
+    :alt "Game-link flag 16 (edit box focused; needs tehuti screen_probe): the digits as one text action into the focused box, no chat line. Not built: text without the open-chat key."}
    {:id :duration :triggers ["listing time"] :slot :hours
-    :does "Draft /mimiron ah duration <12|24|48>; A sends it; the add-on picks the duration."
-    :game "Utterance: Enter plus text. A: Enter. Then the add-on sets the duration dropdown."
-    :needs #{:mimiron :addon} :ruling :addon-acts
-    :pad "Move to the duration dropdown, A, pick."}
-   {:id :buy :triggers ["buy now" "purchase"] :slot :none
-    :does "Draft /mimiron ah buy; A sends it; the add-on presses Buy. Recommended: decline, keep A on WoW's own Buy button."
-    :game "Utterance: Enter plus text. A: Enter. Then the add-on clicks BuyButton (a purchase)."
-    :needs #{:mimiron :addon} :ruling :addon-acts
-    :pad "Move to Buy Now, A, then confirm with A."}
-   {:id :bid :triggers ["place bid"] :slot :none
-    :does "Draft /mimiron ah bid; A sends it; the add-on presses Bid. Recommended: decline."
-    :game "Utterance: Enter plus text. A: Enter. Then the add-on clicks the bid button (C_AuctionHouse.PlaceBid)."
-    :needs #{:mimiron :addon} :ruling :addon-acts
-    :pad "Move to Bid, A."}
-   {:id :post :triggers ["post auction" "post item"] :slot :none
-    :does "Draft /mimiron ah post; A sends it; the add-on presses Post. Recommended: decline."
-    :game "Utterance: Enter plus text. A: Enter. Then the add-on clicks PostButton (PostItem or PostCommodity)."
-    :needs #{:mimiron :addon} :ruling :addon-acts
-    :pad "Move to Post, A."}])
+    :does "Draft /mimiron ah duration <12|24|48>; A sends it; the add-on picks the listing time."
+    :game "Utterance: Enter plus text. A: Enter. Then the add-on calls the duration control's SetDuration."
+    :needs #{:mimiron :addon} :exception 3
+    :pad "Move to the duration dropdown, A, pick."}])
+
+(def help-text
+  "The powerline line \"auction help\" shows: one trigger per phrase."
+  "Auction: search, sort by, pick, quantity, max quantity, set price, listing time, leave auction")
 
 (def triggers
   "Every trigger, longest first, with the phrase it starts."
@@ -211,7 +201,25 @@
       (when-let [slots (read-slot (:slot p) (words-of (str/trim (subs said (count t)))))]
         (assoc slots :id (:id p))))))
 
-(defn needs-ruling
-  "The ids of phrases that wait on an owner ruling."
+(defn fills
+  "The ids of phrases whose line makes the add-on fill a field (exception 3)."
   []
-  (set (map :id (filter :ruling phrases))))
+  (set (map :id (filter #(= 3 (:exception %)) phrases))))
+
+(def ^:private column-words
+  {:price "price" :name "name" :level "level" :bid "bid" :buyout "buyout"
+   :time-remaining "time"})
+
+(defn command
+  "The `/mimiron ah <verb> ...` line a parsed field phrase drafts, or nil (:help, :leave,
+  anything else). Every argument is a number or a fixed word, except search's words."
+  [{:keys [id words column reversed n copper hours]}]
+  (when-let [arg (case id
+                   :search words
+                   :sort (str (column-words column) (when reversed " reversed"))
+                   (:pick :quantity) (str n)
+                   :max ""
+                   :price (str copper)
+                   :duration (str hours)
+                   nil)]
+    (str/trimr (str "/mimiron ah " (name id) " " arg))))

@@ -158,6 +158,25 @@
     (is (empty? (method out "actions")) "a situation never sends game input")
     (is (= [] (reply out 3)) "auction mode types no dictation")))
 
+(deftest auction-phrases-end-to-end
+  (let [south {:method "pad_input" :params {:button "south" :state "pressed"}}
+        {:keys [out]} (fake-core [[0 (core-init {:screen_probe "screen_probe.watch"})] [0 wow]
+                                  [0 (speech 1 "chat with guild")]
+                                  [100 (probe solo)]
+                                  [200 (probe solo-ah)]
+                                  [300 (speech 2 "quantity twenty")]
+                                  [400 south]
+                                  [500 (speech 3 "auction help")]
+                                  [600 (speech 4 "leave auction")]
+                                  [700 (probe solo-ah)]])]
+    (is (= [{:type "key" :key "enter"} {:type "text" :text "/mimiron ah quantity 20"}] (reply out 2)))
+    (is (= [[{:type "key" :key "enter"}]] (map #(get-in % [:params :actions]) (method out "actions")))
+        "only A's Enter is sent unprompted")
+    (is (= [] (reply out 3)) "help is no game input")
+    (is (= [] (reply out 4)) "leaving is no game input")
+    (is (= [nil "Guild" "Auction" "Auction: search, sort by, pick, quantity, max quantity, set price, listing time, leave auction" "Guild"]
+           (statuses out)))))
+
 (deftest without-screen-probe-the-mode-ignores-strips
   (let [{:keys [out]} (fake-core (situation-script (core-init nil)))]
     (is (= [nil "Guild"] (statuses out)))

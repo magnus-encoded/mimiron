@@ -79,6 +79,33 @@
     (is (= main/app-ids (set (m "app_ids"))))
     (is (= #{"button" "focus" "speech"} (set (m "events"))))))
 
+(defn- languages [out]
+  (mapv #(get-in % [:params :language]) (filter #(= "speech.language" (:method %)) out)))
+
+(def ^:private other
+  {:method "focus" :params {:app_id "firefox" :title "Firefox"}})
+
+(deftest speech-language-follows-party
+  (let [out (session init wow
+                     {:id 1 :method "speech" :params {:text "chat with party"}}
+                     {:id 2 :method "speech" :params {:text "hi"}}
+                     {:id 3 :method "speech" :params {:text "chat with guild"}})]
+    (is (= ["en" "no" "en"] (languages out)))
+    (is (= {:jsonrpc "2.0" :method "speech.language" :params {:language "no"}}
+           (first (filter #(= "no" (get-in % [:params :language])) out))))))
+
+(deftest speech-language-resent-on-focus-entry
+  (let [out (session init wow
+                     {:id 1 :method "speech" :params {:text "chat with party"}}
+                     other wow wow)]
+    (is (= ["en" "no" "no"] (languages out)) "re-sent once on re-entry, not on repeated focus")))
+
+(deftest speech-language-only-on-change-and-only-in-wow
+  (is (= [] (languages (session init other))))
+  (is (= ["en"] (languages (session init wow
+                                    {:id 1 :method "speech" :params {:text "chat with say"}}
+                                    {:id 2 :method "speech" :params {:text "hi"}})))))
+
 (deftest the-launcher-gets-no-status-and-no-game-input
   ;; WoW starts from the Battle.net launcher's Play button, so there is no launch advice to give.
   (let [launcher {:method "focus" :params {:app_id "steam_proton" :title "Battle.net"}}
@@ -97,9 +124,9 @@
     (is (not-any? #(= {:text "Start WoW with wow-forever"} (:params %))
                   (session init {:method "focus" :params {:app_id "steam_proton"
                                                           :title "BattleNet - Wine Desktop"}})))
-    (is (= {:text "Party"} (:params (last (session init wow
+    (is (= {:text "Party"} (:params (last (filter #(= "status" (:method %)) (session init wow
                        {:id 1 :method "speech" :params {:text "chat with party"}}
-                       launcher wow)))))))
+                       launcher wow))))))))
 
 (deftest known-drafts-survive-non-a-wire-paths-without-being-sent
   (doseq [method ["button" "pad_input"]

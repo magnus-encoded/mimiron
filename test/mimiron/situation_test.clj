@@ -55,9 +55,8 @@
     (testing "entering shows on the powerline"
       (is (:auction at-ah))
       (is (= "Auction" (r/status at-ah))))
-    (testing "the vocabulary is a stub: dictation types nothing"
-      (is (= [] (second (r/speech at-ah {} "hello there"))))
-      (is (empty? r/auction-vocabulary)))
+    (testing "dictation types nothing (the phrases are in auction-mode-test)"
+      (is (= [] (second (r/speech at-ah {} "hello there")))))
     (testing "closing restores the previous mode"
       (is (= "Guild" (r/status (seen at-ah solo)))))
     (testing "a group change never moves the channel underneath"
@@ -82,6 +81,6 @@
 (deftest a-situation-is-never-an-action
   (let [s (say r/initial "chat with guild" "hello")]
     (doseq [sit [solo party raid bg solo-ah]]
-      (is (= (dissoc s :situation :channel :auction :target :switching)
-             (dissoc (r/situation s sit) :situation :channel :auction :target :switching))
+      (is (= (dissoc s :situation :channel :auction :help :target :switching)
+             (dissoc (r/situation s sit) :situation :channel :auction :help :target :switching))
           "only mode keys move; the draft and pause state stay"))))

@@ -53,7 +53,10 @@ SlashCmdList.MIMIRON = function(message)
     local toggle = string.match(message, "^%s*guildnames%s+(%a+)%s*$")
     local link = string.match(message, "^%s*link%s+(%a+)%s*$")
     local ptt = string.match(message, "^%s*ptt%s+(%a+)%s*$")
-    if ptt == "voice" or ptt == "dictation" then
+    local ah = string.match(message, "^%s*ah%s+(.*)$") or string.match(message, "^%s*ah%s*$") and ""
+    if ah then
+        MimironAuction.run(ah)
+    elseif ptt == "voice" or ptt == "dictation" then
         MimironLink.setPtt(ptt)
         say("ptt " .. ptt .. ". While voice chat is on, the push-to-talk button " .. (ptt == "voice" and "talks in voice chat." or "keeps dictating chat."))
     elseif link == "on" or link == "off" then
@@ -66,6 +69,6 @@ SlashCmdList.MIMIRON = function(message)
         say("link " .. (MimironLink.on() and "on" or "off") .. " (default off). Use /mimiron link on|off")
         say("ptt " .. MimironLink.ptt() .. " (default voice). Use /mimiron ptt voice|dictation")
     else
-        say("use /mimiron guildnames on|off, /mimiron link on|off, /mimiron ptt voice|dictation, or /mimiron status")
+        say("use /mimiron guildnames on|off, /mimiron link on|off, /mimiron ptt voice|dictation, /mimiron status, or /mimiron ah <field> <value>")
     end
 end

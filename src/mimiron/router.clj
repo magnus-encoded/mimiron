@@ -1,6 +1,7 @@
 (ns mimiron.router
   "The chat router as pure functions: state in, state and actions out."
   (:require [clojure.string :as str]
+            [mimiron.auction :as auction]
             [mimiron.bindings :as bindings]
             [mimiron.roster :as roster]
             [mimiron.sounds :as sounds]))
@@ -98,14 +99,16 @@
 (defn- command-for [said]
   (or (commands said) (commands (str/replace said #"^mimiron " ""))))
 
-;; :situation is the add-on's latest {:group :auction} (game link); :auction is auction mode.
+;; :situation is the add-on's latest {:group :auction} (game link); :auction is auction mode;
+;; :help shows auction mode's phrases on the powerline until the next utterance.
 (def initial {:channel nil :paused false :switching false :draft false
-              :situation nil :auction false})
+              :situation nil :auction false :help false})
 
-;; Auction mode's voice vocabulary: a stub. Each phrase will press at most one key and needs a
-;; fair-play review and an owner ruling first (search, buy). Until then the mode only shows on
-;; the powerline and keeps dictation out of the chat box.
-(def auction-vocabulary {})
+(defn- drafted
+  "A whole command this utterance drafts for A, or nil: a fixed command phrase anywhere, or
+  in auction mode a field phrase's `/mimiron ah` line (fair-play exception 3)."
+  [said parsed]
+  (or (command-for said) (auction/command parsed)))
 
 ;; The channel each group makes the default.
 (def ^:private situation-channels
@@ -189,9 +192,12 @@
   `names` (party and guild) are who \"whisper <name>\" may pick."
   ([state bound text] (speech state bound text identity))
   ([state bound text shape] (speech state bound text shape []))
-  ([{:keys [channel paused] :as state} bound text shape names]
-  (let [state (dissoc state :notice)
+  ([state bound text shape names]
+  (let [;; Help shows until the next utterance, whatever it is.
+        {:keys [channel paused] :as state} (-> state (assoc :help false) (dissoc :notice))
         said (normalize text)
+        ;; Auction phrases count only in auction mode; elsewhere the same words are chat.
+        phrase (when (:auction state) (auction/parse said))
         target (whisper-target said names)
         line (fn [] (let [t (str/trim text)] (if (= "yell" channel) (shape t) t)))]
     (cond
@@ -210,7 +216,9 @@
                                    :auction false) []]
       (chosen-channel said) [(assoc state :channel (chosen-channel said)
                                     :paused false :switching false :auction false) []]
-      (and (:auction state) (auction-vocabulary said)) [state []]
+      ;; Mimiron's own state only: the house stays open, and only its next opening re-enters.
+      (= :leave (:id phrase)) [(assoc state :auction false) []]
+      (= :help (:id phrase)) [(assoc state :help true) []]
       ;; Screenshot can fire with a draft: PrintScreen types no character.
       ;; Other voice actions would type letters into the open chat box.
       (voice-action said)
@@ -223,10 +231,10 @@
           :else [(assoc state :notice (str "No key bound: " (str/replace said #"^open (the |my )?" "")))
                  []]))
       ;; A command opens its own box and waits for A; it never joins an open draft.
-      (command-for said) (if (:draft state)
-                           [state []]
-                           [(assoc state :draft true)
-                            [enter {:type "text" :text (command-for said)}]])
+      (drafted said phrase) (if (:draft state)
+                              [state []]
+                              [(assoc state :draft true)
+                               [enter {:type "text" :text (drafted said phrase)}]])
       ;; Enter opens the box on every keyboard layout; "/" is layout-dependent.
       ;; With a draft the box is already open, so extending it sends no key:
       ;; Enter would send the draft. Auction mode types nothing into chat.
@@ -283,13 +291,15 @@
       ;; Owner ruling (#12 Q1): a chosen channel only moves by a manual switch.
       (and regrouped? (nil? (:channel state)) (not= :solo group))
       (assoc :channel (situation-channels group))
-      opened? (assoc :auction true)
-      closed? (assoc :auction false))))
+      opened? (assoc :auction true :help false)
+      closed? (assoc :auction false :help false))))
 
 (defn status
-  "The powerline text: auction mode, else the channel, marked while paused or switching."
-  [{:keys [channel target paused switching auction notice]}]
+  "The powerline text: auction mode (its phrases after \"auction help\"), else the channel,
+  marked while paused or switching."
+  [{:keys [channel target paused switching auction help notice]}]
   (cond
+    (and auction help) auction/help-text
     notice notice
     auction "Auction"
     channel

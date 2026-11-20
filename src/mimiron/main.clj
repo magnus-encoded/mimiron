@@ -1,7 +1,11 @@
 (ns mimiron.main
   "Tehuti plugin speaking protocol v0 over stdin and stdout."
-  (:require [jsonista.core :as json]
+  (:require [clojure.string :as str]
+            [jsonista.core :as json]
             [mimiron.bindings :as bindings]
+            [mimiron.jev :as jev]
+            [mimiron.link :as link]
+            [mimiron.roster :as roster]
             [mimiron.router :as router])
   (:gen-class))
 
@@ -24,37 +28,158 @@
 (defn- log [& parts]
   (binding [*out* *err*] (apply println "mimiron:" parts)))
 
+;; Opt-in matching aid: while this flag file exists, each heard line and the
+;; routing outcome go to a local file in /tmp. Off by default; never shipped.
+(def ^:private speech-debug-flag "/tmp/mimiron-speech-debug")
+(def ^:private speech-debug-file "/tmp/mimiron-speech.log")
+
+(defn- debug-speech! [heard before after actions]
+  (when (.exists (java.io.File. ^String speech-debug-flag))
+    (try
+      (let [f (java.io.File. ^String speech-debug-file)]
+        (when-not (.exists f)
+          (.createNewFile f)
+          (.setReadable f false false) (.setReadable f true true)
+          (.setWritable f false false) (.setWritable f true true))
+        (spit f (str (java.time.LocalTime/now) " heard=" (pr-str heard)
+                     " channel=" (:channel before) "->" (:channel after)
+                     " actions=" (mapv :type actions) "\n")
+              :append true))
+      (catch Exception _ nil))))
+
 (defn- notify! [method params] (send! {:method method :params params}))
+
+(defn- whisper-names
+  "Who \"whisper <name>\" may pick: the group (strip, else saved overflow) and guild."
+  [world]
+  (let [frame (get-in world [:link :frame])]
+    (concat (if (and frame (not (:overflow frame))) (:party frame) (:link-names world))
+            (:guild-names world))))
 
 (defn- route
   "Applies a speech, button or pad input event in game; returns [world actions]."
-  [{:keys [state bound] :as world} method params]
+  [{:keys [state bound shape] :as world} method params]
   (let [[s actions] (case method
-                      "speech" (router/speech state bound (:text params ""))
+                      "speech" (router/speech state bound (:text params "") shape
+                                              (whisper-names world))
                       "button" (router/button state :request (:name params)
                                               (= "pressed" (:state params)))
                       "pad_input" (router/button state :pad (:button params)
                                                  (= "pressed" (:state params))))]
+    (when (= method "speech") (debug-speech! (:text params "") state s actions))
     [(assoc world :state s) actions]))
+
+;; Core features Mimiron may use. A strict core logs and drops unknown methods, and
+;; counts them toward a plugin restart, so a notice stays unsent until the core accepts
+;; it. "screen_probe" turns on when initialize advertises it in `options.screen_probe`
+;; (docs/notes/screen-probe-contract.md), "push_to_talk.route" with
+;; `options.push_to_talk_route` (docs/notes/voice-chat-ptt.md), "speech.hints" (dictation hotwords,
+;; tehuti #526, docs/notes/mode-switch-speech.md) with `options.speech_hints`.
+(def live-features #{})
+
+(defn- advertised
+  "Features the core offers in initialize `options`."
+  [params]
+  (let [options (:options params)
+        offered? (fn [k] (and (map? options) (some? (k options)) (not (false? (k options)))))]
+    (cond-> #{}
+      (offered? :screen_probe) (conj "screen_probe")
+      (offered? :push_to_talk_route) (conj "push_to_talk.route")
+      (offered? :speech_hints) (conj "speech.hints"))))
+
+(defn- live? [world feature] (contains? (:live-features world) feature))
+
+(def ^:private to-speech {:to "speech"})
+
+(defn- voice-ptt
+  "Voice chat state from the add-on's latest frame, when the core can both read the strip
+  and route push-to-talk; else nil. :key is WoW's push-to-talk binding as a key action,
+  nil when tehuti can't press it (a mouse button, say)."
+  [world]
+  (let [frame (get-in world [:link :last])]
+    (when (and (:game world) (live? world "screen_probe") (live? world "push_to_talk.route")
+               (:voice frame))
+      (assoc frame :key (some-> (:ptt-key frame) bindings/key-action)))))
+
+(defn ptt-route
+  "Where the core should send push-to-talk: WoW's voice chat key while voice chat is on,
+  unless the player keeps it for dictation (`/mimiron ptt dictation`). Dictation also wins
+  while a chat box or draft is open, where a held key would type into it, and while switching."
+  [world]
+  (let [v (voice-ptt world)
+        {:keys [draft switching]} (:state world)]
+    (if (and v (:key v) (not (:keep-dictation v)) (not (:chat v)) (not draft) (not switching))
+      (cond-> {:to "key" :key (get-in v [:key :key])}
+        (get-in v [:key :mods]) (assoc :mods (get-in v [:key :mods])))
+      to-speech)))
+
+(defn- ptt-status
+  "The powerline note while voice chat is on: where push-to-talk goes."
+  [world]
+  (when-let [v (voice-ptt world)]
+    (cond (not= to-speech (ptt-route world))
+          (str "PTT: voice chat" (when (:voice-discord v) " (Discord)"))
+          (:keep-dictation v) "PTT: dictation"
+          (nil? (:key v)) "PTT: dictation (voice chat key not usable)")))
+
+(declare ^:private error!)
+
+(defn- refresh-bindings
+  "The player's bindings, re-read from WoW's bindings-cache.wtf when it changed (one stat when
+  not). Called only in game; a failed read keeps the last good map."
+  [world method]
+  (if-let [reload (:reload-bindings world)]
+    (try (assoc world :bound (reload))
+         (catch Exception e
+           (error! (.getSimpleName (class e)) method 0)
+           world))
+    world))
 
 (defn- handle
   "Applies one core message to `world`; returns the next world. Outside the
   game Mimiron is inert: events change nothing and every reply is empty."
   [world {:keys [id method params]}]
   (case method
-    "initialize" (do (send! {:id id :result {:protocol_version 0 :encoding "json"
-                                             :events ["button" "focus" "speech"]}})
-                     (assoc world :ready true))
+    "initialize" (let [world (update world :live-features into (advertised params))]
+                   (send! {:id id :result {:protocol_version 0 :encoding "json"
+                                           :events ["button" "focus" "speech"]}})
+                   ;; Ask tehuti to sample the add-on's strip, once the core supports it.
+                   (when (live? world "screen_probe")
+                     (notify! "screen_probe.watch" link/watch))
+                   (assoc world :ready true))
+    "screen_probe"
+    ;; Only after asking for it, and only in game: a strip seen elsewhere is ignored.
+    (if (and (:game world) (live? world "screen_probe"))
+      (let [[l actions events] (link/observe (:link world) (:cells params) (:state world)
+                                             ((:clock world)))
+            world (cond-> (assoc world :link l)
+                    (:new-session events) (merge ((:reload-saved world)))
+                    ;; The group and the auction house set Mimiron's mode; a missing strip
+                    ;; (loading screen) changes nothing.
+                    (:frame l) (update :state router/situation (:frame l)))]
+        (when (seq actions) (notify! "actions" {:actions actions}))
+        world)
+      world)
     "focus" (let [game? (in-game? params)]
               (-> world
                   (assoc :game game?)
-                  (update :state router/focus game?)))
+                  ;; Back in WoW: the player may have rebound keys in the game's own menu.
+                  (cond-> game? (refresh-bindings "focus"))
+                  (update :state router/focus game?)
+                  ;; Voice chat state is re-read from the next strip after coming back.
+                  (cond-> (not game?) (assoc-in [:link :last] nil))))
     ("speech" "button" "pad_input")
-    (let [[next-world actions] (if (:game world) (route world method params) [world []])]
+    (let [[next-world actions] (if (:game world)
+                                 (route (cond-> world
+                                          (= "speech" method) (refresh-bindings method))
+                                        method params)
+                                 [world []])]
       (if id
         (send! {:id id :result actions})
         (when (seq actions) (notify! "actions" {:actions actions})))
       next-world)
+    ;; The core's count of hotwords kept and dropped (tehuti #526): nothing to act on.
+    "speech.hints.status" world
     (do (when id (send! {:id id :error {:code -32601 :message "Method not found"}}))
         world)))
 
@@ -62,11 +187,38 @@
   "What the core should see: nothing while another app has focus."
   [world]
   (if (:game world)
-    [(router/overrides (:state world)) (router/status (:state world))]
+    [(router/overrides (:state world))
+     (let [parts (remove nil? [(router/status (:state world)) (link/status (:link world))
+                               (ptt-status world)])]
+       (when (seq parts) (str/join " · " parts)))]
     [[] nil]))
 
 (def ^:private known-methods
-  #{"initialize" "focus" "speech" "button" "pad_input"})
+  #{"initialize" "focus" "speech" "button" "pad_input" "screen_probe" "speech.hints.status"})
+
+;; Tehuti merges plugin and context hotwords under one cap of 64, so Mimiron
+;; spends at most half and sends only what the current mode can use.
+(def hint-budget 32)
+
+(defn hotwords
+  "Words to prime dictation with. In WoW always the mode words first (router/mode-hotwords:
+  the trigger and every channel), since a switch is said while chatting as often as before.
+  Then the people the channel reaches: guild names on guild and officer; the group (strip,
+  else saved overflow) on every other channel. Nothing outside the game, so
+  other apps' dictation stays clean."
+  [world]
+  (let [{:keys [channel switching auction]} (:state world)
+        frame (get-in world [:link :frame])
+        party (if (and frame (not (:overflow frame))) (:party frame) (:link-names world))]
+    (if-not (:game world)
+      []
+      (roster/hotwords (concat router/mode-hotwords
+                               (cond
+                                 ;; Auction mode takes no dictation; a channel name leaves it.
+                                 (or (nil? channel) switching auction) []
+                                 (#{"guild" "officer"} channel) (:guild-names world)
+                                 :else party))
+                       hint-budget))))
 
 (defn- language
   "The speech language to hold: Norwegian for party chat, English otherwise.
@@ -88,32 +240,100 @@
         (notify! "status" {:text s}))
       (let [l (language after)]
         (when (and l (or fresh (not= l (language before))))
-          (notify! "speech.language" {:language l}))))))
+          (notify! "speech.language" {:language l})))
+      (let [r (ptt-route after)]
+        ;; The core starts every plugin on speech, so a fresh session sends only a change.
+        (when (and (live? after "push_to_talk.route")
+                   (if fresh (not= to-speech r) (not= r (ptt-route before))))
+          (notify! "push_to_talk.route" r)))
+      (let [h (hotwords after)]
+        ;; The notice replaces the plugin's list, so an empty one clears it.
+        (when (and (live? after "speech.hints")
+                   (if fresh (seq h) (not= h (hotwords before))))
+          (notify! "speech.hints" {:scope "chat" :hotwords h}))))))
 
-(defn run [lines bound]
+(def max-line-length 65536)
+
+(defn read-lines
+  "Bounded JSON-line reader. Oversized lines are drained without retaining content."
+  [^java.io.Reader reader]
+  (lazy-seq
+   (let [buf (StringBuilder.)]
+     (loop [n 0]
+       (let [c (.read reader)]
+         (if (or (= -1 c) (= 10 c))
+           (when (or (pos? n) (= 10 c))
+             (cons (if (> n max-line-length) {:length n} (str buf))
+                   (when-not (= -1 c) (read-lines reader))))
+           (do (when (< n max-line-length) (.append buf (char c)))
+               (recur (inc n)))))))))
+
+(defn- error! [class-name method length]
+  (log "error" class-name "method" (or (known-methods method) "other") "length" length))
+
+(defn- valid-message? [{:keys [method params]}]
+  (and (string? method)
+       (map? params)
+       (case method
+         "speech" (string? (:text params))
+         "focus" (and (string? (:app_id params)) (string? (:title params)))
+         "button" (and (string? (:name params)) (#{"pressed" "released"} (:state params)))
+         "pad_input" (and (string? (:button params)) (#{"pressed" "released"} (:state params)))
+         "screen_probe" (sequential? (:cells params))
+         true)))
+
+(defn run
+  ([lines bound] (run lines bound identity))
+  ([lines bound shape] (run lines bound shape []))
+  ([lines bound shape guild-names]
+   (run lines bound shape guild-names {}))
+  ([lines bound shape guild-names opts]
   (reduce (fn [world line]
-            ;; Lines can carry speech and chat, so logs name only the error
-            ;; class, a known method and the line length, never content.
-            (let [msg (try (json/read-value line mapper)
-                           (catch Exception e
-                             (log "bad line:" (.getSimpleName (class e)) "length" (count line))
-                             nil))]
-              (if-not (map? msg)
-                (do (when msg (log "bad line: not an object, length" (count line))) world)
-                (try
-                  (let [next-world (handle world msg)]
-                    (sync! world next-world)
-                    next-world)
-                  (catch Exception e
-                    (log "failed:" (.getSimpleName (class e))
-                         "method" (known-methods (:method msg) "other")
-                         "length" (count line))
-                    world)))))
-          {:state router/initial :bound bound :ready false :game false}
-          lines))
+            (let [length (if (map? line) (:length line) (count line))]
+              (if (> length max-line-length)
+                (do (error! "LineTooLong" nil length) world)
+                (let [msg (try (json/read-value line mapper)
+                               (catch Exception e
+                                 (error! (.getSimpleName (class e)) nil length)
+                                 ::invalid))]
+                  (cond
+                    (= ::invalid msg) world
+                    (not (map? msg)) (do (error! "InvalidRequest" nil length) world)
+                    (not (known-methods (:method msg)))
+                    (do (error! "UnknownMethod" nil length) (handle world msg))
+                    (not (valid-message? msg))
+                    (do (error! "InvalidParams" (:method msg) length) world)
+                    :else
+                    (try
+                      (let [next-world (handle world msg)]
+                        (sync! world next-world)
+                        next-world)
+                      (catch Exception e
+                        (error! (.getSimpleName (class e)) (:method msg) length)
+                        world)))))))
+          (merge {:state router/initial :bound bound :shape shape :guild-names guild-names
+                  :link link/initial :link-names [] :live-features live-features
+                  :clock #(System/currentTimeMillis)
+                  :reload-saved (constantly {})
+                  :ready false :game false}
+                 opts)
+          lines)))
 
 (defn -main [& _]
-  (let [root (bindings/default-wtf-root)
-        bound (if root (bindings/load-bindings root) {})]
-    (log "bindings from" (or root "defaults"))
-    (run (line-seq (java.io.BufferedReader. *in*)) bound)))
+  (let [wtf (bindings/default-wtf-root)
+        explicit (System/getenv "MIMIRON_BINDINGS")
+        ;; WoW's own bindings-cache.wtf, read only; again on each WoW focus and phrase if it changed.
+        current-bindings (bindings/watcher #(bindings/cache-file wtf explicit))
+        bound (try (current-bindings)
+                   (catch Exception e
+                     (error! (.getSimpleName (class e)) nil 0)
+                     {}))
+        ;; Guild names (opt-in add-on toggle) wait in memory until tehuti accepts
+        ;; plugin hotwords (live-features); they are never logged or sent today.
+        saved (roster/load-saved wtf)]
+    (run (read-lines *in*) bound jev/shape (:guild saved)
+         {:link-names (:link saved)
+          :reload-bindings current-bindings
+          ;; Evaluated on each new add-on session: the reload just wrote the file.
+          :reload-saved #(let [s (roster/load-saved wtf)]
+                           {:guild-names (:guild s) :link-names (:link s)})})))

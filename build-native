@@ -6,5 +6,5 @@ for tool in clojure native-image; do
     command -v "$tool" >/dev/null || { echo "missing: $tool" >&2; exit 1; }
 done
 clojure -T:build uber
-native-image -jar target/mimiron.jar -o mimiron \
+native-image -jar target/mimiron.jar -o mimiron --enable-url-protocols=https \
     --no-fallback --initialize-at-build-time -H:+ReportExceptionStackTraces

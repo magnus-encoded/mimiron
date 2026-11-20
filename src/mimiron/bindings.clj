@@ -4,12 +4,28 @@
             [clojure.string :as str]))
 
 (def default-keys
-  {"TOGGLESPELLBOOK" "P"
+  {"SCREENSHOT" "PRINTSCREEN"
+   "OPENCHATSLASH" "/"
+   "TOGGLESPELLBOOK" "P"
    "OPENALLBAGS" "B"
-   "TOGGLEWORLDMAP" "M"})
+   "TOGGLEWORLDMAP" "M"
+   ;; Retail's default keys for the same actions [A]: WoW Forever's client defaults aren't in the
+   ;; UI source, and an empty bindings-cache.wtf (no rebinds) doesn't list them. A key the player
+   ;; binds in the file wins. Currency, raid and group finder have no default here: they work once
+   ;; the player binds them.
+   "TOGGLECHARACTER0" "C"
+   "TOGGLECHARACTER2" "U"
+   "TOGGLECHARACTER4" "H"
+   "TOGGLETALENTS" "N"
+   "TOGGLEPROFESSIONBOOK" "K"
+   "TOGGLEQUESTLOG" "L"
+   "TOGGLEGUILDTAB" "J"
+   "TOGGLESOCIAL" "O"
+   "TOGGLECOLLECTIONS" "SHIFT-P"})
 
 (def ^:private key-names
-  {"SPACE" "space" "ESCAPE" "escape" "ENTER" "enter" "TAB" "tab"
+  {"PRINTSCREEN" "print_screen"
+   "SPACE" "space" "ESCAPE" "escape" "ENTER" "enter" "TAB" "tab"
    "BACKSPACE" "backspace" "HOME" "home" "END" "end" "PAGEUP" "page_up"
    "PAGEDOWN" "page_down" "INSERT" "insert" "DELETE" "delete"
    "UP" "up" "DOWN" "down" "LEFT" "left" "RIGHT" "right"
@@ -20,12 +36,15 @@
 (def ^:private modifiers {"CTRL" "ctrl" "ALT" "alt" "SHIFT" "shift"})
 
 (defn parse
-  "{key action} from bindings-cache.wtf lines like `bind SHIFT-1 ACTION`, in file order."
+  "{key action} from bindings-cache.wtf lines like `bind SHIFT-1 ACTION`, in file order. Only
+  key-to-action lines: spell, macro, item and click bindings (which name the player's own
+  things) are dropped with every other line."
   [text]
   (into (array-map)
         (keep (fn [line]
-                (let [[word k action] (str/split (str/trim line) #"\s+" 3)]
-                  (when (and (= "bind" word) action) [k (str/trim action)]))))
+                (when-let [[_ k action] (re-matches #"bind\s+(\S+)\s+([A-Z][A-Z0-9_]*)"
+                                                    (str/trim line))]
+                  [k action])))
         (str/split-lines text)))
 
 (defn key-action
@@ -66,13 +85,47 @@
         (when (.exists launcher)
           (wtf-root-from-launcher (slurp launcher) home)))))
 
+(def max-cache-bytes
+  "A real bindings-cache.wtf is a few kilobytes; anything far bigger isn't one and isn't read."
+  (* 1024 1024))
+
+(defn- read-cache [^java.io.File file]
+  (try
+    (if (and file (.isFile file) (<= (.length file) max-cache-bytes))
+      (parse (slurp file))
+      {})
+    (catch java.io.IOException _ {})))
+
+(defn cache-file
+  "The one binding file to read: `explicit` (an account or character cache) when given, else the
+  newest account cache under WTF, else nil. Character identity cannot be inferred from mtimes,
+  so a character cache is only ever read when named."
+  [wtf-root explicit]
+  (if explicit
+    (io/file explicit)
+    (->> (when wtf-root (.listFiles (io/file wtf-root "Account")))
+         (map #(io/file % "bindings-cache.wtf"))
+         (filter #(.isFile ^java.io.File %))
+         (sort-by (juxt #(- (.lastModified ^java.io.File %)) #(.getPath ^java.io.File %)))
+         first)))
+
 (defn load-bindings
-  "Bindings from the newest Account/*/bindings-cache.wtf, or {} when none. Never writes."
-  [wtf-root]
-  (let [accounts (.listFiles (io/file wtf-root "Account"))
-        caches (->> accounts
-                    (map #(io/file % "bindings-cache.wtf"))
-                    (filter #(.isFile ^java.io.File %))
-                    (sort-by #(- (.lastModified ^java.io.File %))))]
-    (or (some #(try (parse (slurp %)) (catch java.io.IOException _ nil)) caches)
-        {})))
+  "Reads one binding cache (see `cache-file`). Never merges binding sets or writes files."
+  ([wtf-root] (load-bindings wtf-root nil))
+  ([wtf-root cache-file-path] (read-cache (cache-file wtf-root cache-file-path))))
+
+(defn- stamp [^java.io.File file]
+  (when (and file (.isFile file)) [(.getPath file) (.lastModified file) (.length file)]))
+
+(defn watcher
+  "A function of no arguments giving the current bindings from the file `locate` returns. It
+  reads the file again only when its path, modification time or size changed, so calling it on
+  every focus and phrase costs one stat. Read only."
+  [locate]
+  (let [seen (atom nil)]
+    (fn []
+      (let [file (locate)
+            s (stamp file)]
+        (if (and @seen (= s (:stamp @seen)))
+          (:bound @seen)
+          (:bound (reset! seen {:stamp s :bound (if s (read-cache file) {})})))))))

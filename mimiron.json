@@ -1,0 +1,17 @@
+{
+  "id": "mimiron",
+  "executable": "./mimiron",
+  "app_ids": [
+    "steam_proton"
+  ],
+  "events": [
+    "button",
+    "focus",
+    "speech"
+  ],
+  "start": "on_focus",
+  "permissions": [
+    "key",
+    "text"
+  ]
+}

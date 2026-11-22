@@ -253,7 +253,6 @@
                        [[:focus false] [:focus true]])]
     (is (= [] (second (safety-step r/initial event))) (str event))))
 
-
 (deftest opening-chat-uses-enter-not-the-slash-binding
   ;; Enter opens the box on every layout; the slash key does not.
   (let [s (say r/initial "chat with party")]
@@ -410,11 +409,56 @@
       (is (= "say" (:channel after)) said)
       (is (seq actions) (str said " is typed as a line")))))
 
-(deftest the-mode-hotwords-are-the-trigger-and-every-channel
+(deftest the-english-mode-hotwords-include-every-channel
   (is (vector? r/mode-hotwords))
-  (is (= "chat with" (first r/mode-hotwords)))
-  (is (= r/channels (map r/normalize (rest r/mode-hotwords))) "in D-pad order, the old channels first")
+  (is (<= (count r/mode-hotwords) 16))
+  (is (= r/channels (map r/normalize (take (count r/channels) r/mode-hotwords))) "in D-pad order, the old channels first")
   (is (some #{"LFG"} r/mode-hotwords) "spelt as Whisper writes it")
   (testing "every hotword picks its channel"
-    (doseq [[word channel] (map vector (rest r/mode-hotwords) r/channels)]
+    (doseq [[word channel] (map vector r/mode-hotwords r/channels)]
       (is (= channel (:channel (say r/initial (str "chat with " word)))) word))))
+
+(deftest norwegian-channel-aliases
+  (doseq [trigger ["sjatt med" "chatt med" "chat med"]
+          [word channel] [["si" "say"] ["sei" "say"] ["gruppe" "party"]
+                          ["parti" "party"] ["laug" "guild"]]]
+    (is (= channel (:channel (say r/initial (str trigger " " word)))))))
+
+(deftest language-commands-only-change-session-state
+  (doseq [[language phrases] [["no" ["chat in norwegian" "chat på norsk" "chat in norweigan" "chatt på norsk" "chat i norsk" "chat på bokmål" "chat in bokmål"]]
+                              ["en" ["chat in english" "chat på engelsk" "chat in inglish" "chat på englesk" "chat i engelsk"]]]
+          phrase phrases]
+    (let [before (assoc r/initial :channel "party" :draft true)
+          [after actions] (r/speech before {} phrase)]
+      (is (= language (get-in after [:language-overrides "party"])) phrase)
+      (is (:draft after))
+      (is (seq (r/status after)))
+      (is (= [] actions))))
+  (doseq [phrase ["chat in norwegian" "chat in english"]]
+    (is (= (assoc r/initial :notice "Pick a channel first") (say r/initial phrase))))
+  (is (= {"party" "en"}
+         (:language-overrides (say r/initial "chat with party" "chat in english" "stop chat")))))
+
+(deftest whole-english-commands-prime-dictation
+  (doseq [phrase ["chat with say" "switch channel" "chat in english" "chat in norwegian"]]
+    (is (some #{phrase} r/norwegian-mode-hotwords))))
+
+(deftest language-switches-only-the-selected-channel
+  (let [before (assoc r/initial :channel "guild" :language-overrides {"party" "en"})
+        [after actions] (r/speech before {} "chat på norsk")]
+    (is (= {"party" "en" "guild" "no"} (:language-overrides after)))
+    (is (= "guild" (:channel after)))
+    (is (= [] actions)))
+  (doseq [phrase ["chat in english tomorrow" "we chat på norsk" "speak english"]]
+    (let [[after actions] (r/speech (assoc r/initial :channel "say") {} phrase)]
+      (is (nil? (:language-overrides after)))
+      (is (= (str "/s " phrase) (:text (second actions)))))))
+
+(deftest norwegian-pronouns-and-sentences-stay-dictation
+  (doseq [phrase (concat (map #(str "chatt med " %)
+                             ["deg" "dem" "meg" "oss" "ham" "henne" "han" "hun"
+                              "noen" "alle" "dere" "den" "det" "venner"])
+                        ["si hei til dem" "sei hei til dem"])]
+    (let [[after actions] (r/speech (assoc r/initial :channel "party") {} phrase)]
+      (is (= "party" (:channel after)) phrase)
+      (is (= (str "/p " phrase) (:text (second actions))) phrase))))

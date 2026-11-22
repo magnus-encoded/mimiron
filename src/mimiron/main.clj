@@ -28,25 +28,6 @@
 (defn- log [& parts]
   (binding [*out* *err*] (apply println "mimiron:" parts)))
 
-;; Opt-in matching aid: while this flag file exists, each heard line and the
-;; routing outcome go to a local file in /tmp. Off by default; never shipped.
-(def ^:private speech-debug-flag "/tmp/mimiron-speech-debug")
-(def ^:private speech-debug-file "/tmp/mimiron-speech.log")
-
-(defn- debug-speech! [heard before after actions]
-  (when (.exists (java.io.File. ^String speech-debug-flag))
-    (try
-      (let [f (java.io.File. ^String speech-debug-file)]
-        (when-not (.exists f)
-          (.createNewFile f)
-          (.setReadable f false false) (.setReadable f true true)
-          (.setWritable f false false) (.setWritable f true true))
-        (spit f (str (java.time.LocalTime/now) " heard=" (pr-str heard)
-                     " channel=" (:channel before) "->" (:channel after)
-                     " actions=" (mapv :type actions) "\n")
-              :append true))
-      (catch Exception _ nil))))
-
 (defn- notify! [method params] (send! {:method method :params params}))
 
 (defn- whisper-names
@@ -62,11 +43,15 @@
   (let [[s actions] (case method
                       "speech" (router/speech state bound (:text params "") shape
                                               (whisper-names world))
+                      "verb" (if (and (= "mimiron" (:verb params))
+                                      (or (nil? (:locale params)) (= "en" (:locale params))))
+                               (router/speech state bound (:text params "") identity
+                                              (whisper-names world) true)
+                               [state []])
                       "button" (router/button state :request (:name params)
                                               (= "pressed" (:state params)))
                       "pad_input" (router/button state :pad (:button params)
                                                  (= "pressed" (:state params))))]
-    (when (= method "speech") (debug-speech! (:text params "") state s actions))
     [(assoc world :state s) actions]))
 
 ;; Core features Mimiron may use. A strict core logs and drops unknown methods, and
@@ -146,7 +131,9 @@
                    ;; Ask tehuti to sample the add-on's strip, once the core supports it.
                    (when (live? world "screen_probe")
                      (notify! "screen_probe.watch" link/watch))
-                   (assoc world :ready true))
+                   (assoc world :ready true
+                          ;; #863: absent capability means try the harmless notice.
+                          :register-verbs? (not (false? (get-in params [:options :verbs])))))
     "screen_probe"
     ;; Only after asking for it, and only in game: a strip seen elsewhere is ignored.
     (if (and (:game world) (live? world "screen_probe"))
@@ -168,10 +155,10 @@
                   (update :state router/focus game?)
                   ;; Voice chat state is re-read from the next strip after coming back.
                   (cond-> (not game?) (assoc-in [:link :last] nil))))
-    ("speech" "button" "pad_input")
+    ("speech" "verb" "button" "pad_input")
     (let [[next-world actions] (if (:game world)
                                  (route (cond-> world
-                                          (= "speech" method) (refresh-bindings method))
+                                          (#{"speech" "verb"} method) (refresh-bindings method))
                                         method params)
                                  [world []])]
       (if id
@@ -194,15 +181,17 @@
     [[] nil]))
 
 (def ^:private known-methods
-  #{"initialize" "focus" "speech" "button" "pad_input" "screen_probe" "speech.hints.status"})
+  #{"initialize" "focus" "speech" "verb" "button" "pad_input" "screen_probe" "speech.hints.status"})
 
 ;; Tehuti merges plugin and context hotwords under one cap of 64, so Mimiron
 ;; spends at most half and sends only what the current mode can use.
 (def hint-budget 32)
 
+(declare ^:private language)
+
 (defn hotwords
-  "Words to prime dictation with. In WoW always the mode words first (router/mode-hotwords:
-  the trigger and every channel), since a switch is said while chatting as often as before.
+  "Words to prime dictation with. In WoW always the mode words first: whole English
+  channel commands in Norwegian, bare channel names in English.
   Then the people the channel reaches: guild names on guild and officer; the group (strip,
   else saved overflow) on every other channel. Nothing outside the game, so
   other apps' dictation stays clean."
@@ -212,7 +201,9 @@
         party (if (and frame (not (:overflow frame))) (:party frame) (:link-names world))]
     (if-not (:game world)
       []
-      (roster/hotwords (concat router/mode-hotwords
+      (roster/hotwords (concat (if (= "no" (language world))
+                                 router/norwegian-mode-hotwords
+                                 router/mode-hotwords)
                                (cond
                                  ;; Auction mode takes no dictation; a channel name leaves it.
                                  (or (nil? channel) switching auction) []
@@ -221,14 +212,22 @@
                        hint-budget))))
 
 (defn- language
-  "The speech language to hold: Norwegian for party, guild and officer chat, English otherwise.
+  "The session override for this channel, else Norwegian for party, guild and officer; English otherwise.
   Nil outside the game, where Tehuti has cleared the setting anyway."
   [world]
   (when (:game world)
-    (if (#{"party" "guild" "officer"} (:channel (:state world))) "no" "en")))
+    (let [{:keys [channel language-overrides]} (:state world)]
+      (or (get language-overrides channel)
+          (if (#{"party" "guild" "officer"} channel) "no" "en")))))
+
+(def verb-registration
+  {:verbs [{:word "mimiron" :locale "en"
+            :hints (vec (concat router/norwegian-mode-hotwords
+                                 ["stop chat" "pause chat" "resume chat"]
+                                 (sort (keys router/voice-action-bindings))))}]})
 
 (defn- sync!
-  "Sends overrides, status and speech language when they changed since the last message."
+  "Sends changed state notices and registers verbs once on each WoW focus entry."
   [before after]
   (when (:ready after)
     (let [[o s] (shown after)
@@ -238,6 +237,9 @@
         (notify! "pad_overrides" {:overrides (mapv #(hash-map :button %) o)}))
       (when (or fresh (not= s s0))
         (notify! "status" {:text s}))
+      (when (and (:game after) (or fresh (not (:game before)))
+                 (:register-verbs? after))
+        (notify! "verbs" verb-registration))
       (let [l (language after)]
         (when (and l (or fresh (not= l (language before))))
           (notify! "speech.language" {:language l})))
@@ -276,6 +278,8 @@
        (map? params)
        (case method
          "speech" (string? (:text params))
+         "verb" (and (string? (:verb params)) (string? (:text params))
+                     (or (nil? (:locale params)) (string? (:locale params))))
          "focus" (and (string? (:app_id params)) (string? (:title params)))
          "button" (and (string? (:name params)) (#{"pressed" "released"} (:state params)))
          "pad_input" (and (string? (:button params)) (#{"pressed" "released"} (:state params)))

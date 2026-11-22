@@ -221,3 +221,95 @@
                                   (throw (java.io.IOException. "gone")))}
         out (run-with opts init wow {:id 1 :method "speech" :params {:text "open quest log"}})]
     (is (= [{:type "key" :key "f7"}] (result out 1)))))
+
+(deftest language-overrides-follow-the-channel-for-the-session
+  (let [said (fn [id text] {:id id :method "speech" :params {:text text}})
+        out (session init wow
+                     (said 1 "chat with party") (said 2 "chat in english")
+                     (said 3 "chat with guild") (said 4 "chat with party")
+                     (said 5 "stop chat") (said 6 "chat with party")
+                     other wow
+                     (said 7 "chat with say") (said 8 "chat på norsk")
+                     (said 9 "chat with officer") (said 10 "chat with say"))]
+    (is (= ["en" "no" "en" "no" "en" "en" "no"] (languages out)))
+    (is (some #(= {:text "Party: English"} (:params %)) out))
+    (is (some #(= {:text "Say: Norwegian"} (:params %)) out))
+    (is (= [] (:result (first (filter #(= 2 (:id %)) out)))))
+    (is (= [] (:result (first (filter #(= 8 (:id %)) out))))))
+  (is (= ["en" "no"]
+         (languages (session init wow
+                             {:id 1 :method "speech" :params {:text "chat with party"}})))
+      "a new plugin session starts with the defaults"))
+
+(deftest language-commands-are-inert-outside-wow
+  (is (= ["en" "no" "no"]
+         (languages (session init wow
+                             {:id 1 :method "speech" :params {:text "chat with party"}}
+                             other
+                             {:id 2 :method "speech" :params {:text "chat in english"}}
+                             wow)))))
+
+(defn- verb [id text]
+  {:id id :method "verb" :params {:verb "mimiron" :locale "en" :text text}})
+
+(deftest english-verb-commands-follow-the-current-channel
+  (let [out (session init wow
+                     (verb 1 "chat with party") (verb 2 "chat in english")
+                     (verb 3 "chat with say") (verb 4 "chat in norwegian")
+                     (verb 5 "chat with guild") (verb 6 "chat with party")
+                     (verb 7 "stop chat"))]
+    (is (= ["en" "no" "en" "no" "en"] (languages out)))
+    (is (every? #(= [] (result out %)) (range 1 8)))
+    (is (= {:text nil} (:params (last (filter #(= "status" (:method %)) out)))))))
+
+(deftest verb-path-never-dictates-and-preserves-drafts
+  (let [out (session init wow
+                     (verb 1 "chat with say")
+                     (verb 2 "private dictated words")
+                     {:id 3 :method "speech" :params {:text "first"}}
+                     (verb 4 "more private words")
+                     {:id 5 :method "speech" :params {:text "second"}})]
+    (is (= [] (result out 2)))
+    (is (= [] (result out 4)))
+    (is (= [{:type "text" :text " second"}] (result out 5)))))
+
+(deftest verb-commands-use-normal-actions-and-focus-guard
+  (is (= [{:type "key" :key "print_screen"}]
+         (result (session init wow (verb 1 "screenshot")) 1)))
+  (doseq [focus [other nil]
+          request [(verb 1 "screenshot") (verb 1 "chat with say")]]
+    (is (= [] (result (session init focus request) 1))))
+  (doseq [params [{:verb "other" :locale "en" :text "screenshot"}
+                  {:verb "mimiron" :locale "no" :text "screenshot"}]]
+    (is (= [] (result (session init wow {:id 1 :method "verb" :params params}) 1))))
+  ;; Legacy string verbs have no locale in the request.
+  (is (= [{:type "key" :key "print_screen"}]
+         (result (session init wow (update (verb 1 "screenshot") :params dissoc :locale)) 1))))
+
+(deftest verb-errors-never-log-content
+  (let [err (stderr-of (json/write-value-as-string
+                       {:id 1 :method "verb" :params {:verb "mimiron" :text {:secret "private-message"}}}))]
+    (is (str/includes? err "InvalidParams"))
+    (is (not (str/includes? err "private-message")))))
+
+(deftest verbs-register-once-per-focus-entry
+  (doseq [options [nil {} {:verbs true} {:verbs "verbs"}]]
+    (let [out (session (assoc-in init [:params :options] options)
+                       other wow wow (verb 1 "chat with guild")
+                       (verb 2 "chat in english") (verb 3 "ordinary dictation")
+                       other wow wow)
+          registrations (filter #(= "verbs" (:method %)) out)]
+      (is (= 2 (count registrations)))
+      (let [registered (get-in (first registrations) [:params :verbs 0])]
+        (is (= "mimiron" (:word registered)))
+        (is (= "en" (:locale registered)))
+        (is (every? (set (:hints registered))
+                    ["chat with party" "chat in english" "chat in norwegian"])))
+      (is (every? #(= {:jsonrpc "2.0" :method "verbs"
+                       :params main/verb-registration} %) registrations))
+      (is (= [] (result out 3)))
+      (is (= ["en" "no" "en" "en"] (languages out))))))
+
+(deftest explicit-verbs-capability-can-disable-registration
+  (is (not-any? #(= "verbs" (:method %))
+                (session (assoc-in init [:params :options] {:verbs false}) wow other wow))))

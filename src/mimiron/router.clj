@@ -26,7 +26,9 @@
 
 ;; Likely speech-to-text mishearings, mapped to the channel meant.
 (def ^:private channel-words
-  {"say" "say" "sigh" "say" "c" "say" "see" "say" "sea" "say"
+  {"si" "say" "sei" "say"
+   "gruppe" "party" "parti" "party" "laug" "guild"
+   "say" "say" "sigh" "say" "c" "say" "see" "say" "sea" "say"
    "party" "party" "potty" "party" "parity" "party" "pardee" "party"
    "guild" "guild" "guilt" "guild" "gild" "guild"
    "yell" "yell" "yelled" "yell" "yelp" "yell" "yellow" "yell"
@@ -135,12 +137,13 @@
 ;; How the recogniser hears "chat" and "with" (docs/notes/mode-switch-speech.md). A heard
 ;; "that" or "check your" is not a trigger: a lead needs a connector and a channel after it.
 (def ^:private chat-leads
-  #{"chat" "chet" "chad" "chap" "chapp" "chart" "cat" "shat" "shut" "short" "check" "jaap"})
-(def ^:private connectors #{"with" "wit" "was" "would" "will" "to" "in" "be" "we"})
+  #{"sjatt" "chatt" "chat" "chet" "chad" "chap" "chapp" "chart" "cat" "shat" "shut" "short" "check" "jaap"})
+(def ^:private connectors #{"med" "with" "wit" "was" "would" "will" "to" "in" "be" "we"})
 ;; Never a channel, however close it sounds ("chat with you" is a chat line).
 (def ^:private not-channels
   #{"you" "ya" "yeah" "yes" "yo" "us" "me" "him" "her" "them" "someone" "somebody" "sis"
-    "trader"})
+    "trader" "deg" "dem" "meg" "oss" "ham" "henne" "han" "hun" "noen" "alle"
+    "dere" "den" "det" "venner"})
 
 ;; Spoken words the alias map could not foresee are matched by sound (mimiron.sounds),
 ;; but only in the slot after a trigger, never a bare word, and only against channels of as
@@ -152,8 +155,14 @@
   (sounds/closest (by-sound (count slot) {}) (str/join " " slot)))
 
 (def mode-hotwords
-  "What tehuti primes dictation with in WoW: the trigger, then every channel in D-pad order."
-  (into ["chat with"] (map #(spelt % %)) channels))
+  "English mode words, leaving half the hint budget for names."
+  (into (mapv #(spelt % %) channels)
+        ["switch channel" "chat in english" "chat in norwegian"]))
+
+(def norwegian-mode-hotwords
+  "Whole English channel commands while dictating Norwegian; at most sixteen hints."
+  (into (mapv #(str "chat with " (spelt % %)) channels)
+        ["switch channel" "chat in english" "chat in norwegian"]))
 
 (defn- sounds-like-a-switch
   "\"<chat-like> <connector> [the|a] <one or two words>\": the channel meant, by alias or sound."
@@ -171,6 +180,17 @@
                (channel-for (str/replace (subs said (count %)) #"^(the|a) " "")))
             chat-prefixes)
       (sounds-like-a-switch said)))
+
+;; Exact whole-phrase aliases keep ordinary dictation out of the command path.
+(def ^:private language-phrases
+  ;; normalize folds å to a space, so på is matched as "p" here.
+  (into {}
+        (for [lead ["chat" "chatt" "sjatt" "cat" "chet"]
+              connector ["in" "i" "p" "pa"]
+              [language words] [["no" ["norwegian" "norweigan" "norway" "norsk" "norskt" "bokm l"]]
+                                ["en" ["english" "inglish" "engelsk" "englesk"]]]
+              word words]
+          [(str lead " " connector " " word) language])))
 
 (defn- whisper-target
   "For a \"whisper <name>\" utterance, the known name meant (nil when unknown), else ::none."
@@ -192,7 +212,8 @@
   `names` (party and guild) are who \"whisper <name>\" may pick."
   ([state bound text] (speech state bound text identity))
   ([state bound text shape] (speech state bound text shape []))
-  ([state bound text shape names]
+  ([state bound text shape names] (speech state bound text shape names false))
+  ([state bound text shape names command-only?]
   (let [;; Help shows until the next utterance, whatever it is.
         {:keys [channel paused] :as state} (-> state (assoc :help false) (dissoc :notice))
         said (normalize text)
@@ -201,10 +222,18 @@
         target (whisper-target said names)
         line (fn [] (let [t (str/trim text)] (if (= "yell" channel) (shape t) t)))]
     (cond
+      (language-phrases said)
+      [(if channel
+         (-> state
+             (assoc-in [:language-overrides channel] (language-phrases said))
+             (assoc :notice (str (spelt channel (str/capitalize channel)) ": "
+                                 (if (= "no" (language-phrases said)) "Norwegian" "English"))))
+         (assoc state :notice "Pick a channel first"))
+       []]
       (and channel (switch-phrases said)) [(assoc state :switching true :auction false) []]
       ;; Mode changes cannot safely close a box: it may now belong to the player.
       ;; The situation and auction mode belong to the game, not to the chat mode.
-      (stop-phrases said) [(merge initial (select-keys state [:draft :situation :auction])) []]
+      (stop-phrases said) [(merge initial (select-keys state [:draft :situation :auction :language-overrides])) []]
       (and channel (pause-phrases said)) [(assoc state :paused true) []]
       (and channel (resume-phrases said)) [(assoc state :paused false) []]
       ;; Any "whisper ..." is a mode change; an unknown name changes nothing.
@@ -238,7 +267,7 @@
       ;; Enter opens the box on every keyboard layout; "/" is layout-dependent.
       ;; With a draft the box is already open, so extending it sends no key:
       ;; Enter would send the draft. Auction mode types nothing into chat.
-      (and channel (not paused) (not (:auction state)) (seq said))
+      (and (not command-only?) channel (not paused) (not (:auction state)) (seq said))
       [(assoc state :draft true)
        (if (:draft state)
          [{:type "text" :text (str " " (line))}]

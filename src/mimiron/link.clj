@@ -63,13 +63,15 @@
     (let [b (cells->bytes cells)
           length (b 6)
           end (+ 7 length)]
-      (when (and (= 0x4D (b 0)) (= 0x32 (b 1)) (< end byte-count)
+      (when (and (= 0x4D (b 0)) (= 0x33 (b 1)) (< end byte-count)
                  (= (b end) (mod (reduce + (subvec b 0 end)) 256)))
         ;; "p=Names", or "k=KEY;p=Names" with WoW's push-to-talk binding while voice chat is on.
         (when-let [[_ ptt-key names] (re-find #"^(?:k=([^;,]+);)?p=(.*)$" (utf8 (subvec b 7 end)))]
           (merge {:session (b 3) :revision (b 4)
                   :group (groups (bit-and 3 (b 5)))
                   :auction (pos? (bit-and auction-bit (b 5)))
+                  :windows (into {} (map (fn [[k bit]] [k (pos? (bit-and bit (b 5)))])
+                                         {:mail 8 :trade 16 :stack-split 32 :merchant 64}))
                   :overflow (= "+" names)
                   :party (if (or (str/blank? names) (= "+" names)) [] (str/split names #","))
                   :ptt-key ptt-key}

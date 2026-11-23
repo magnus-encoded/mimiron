@@ -5,14 +5,14 @@
 --   64 cells, each CELL x CELL physical pixels, left to right from the top-left corner.
 --   A cell carries 3 nibbles as R, G, B, each drawn as nibble * 17 / 255.
 --   Byte i is nibbles 2i (high) and 2i+1 (low); 96 bytes in all.
---   [0] 0x4D 'M'  [1] 0x32 version  [2] flags  [3] session  [4] revision  [5] situation
+--   [0] 0x4D 'M'  [1] 0x33 version  [2] flags  [3] session  [4] revision  [5] situation
 --   [6] length  [7 .. 7+length) payload, UTF-8 "p=Name,Name", or "k=KEY;p=Name,Name" while
 --   voice chat is on  [7+length] checksum (sum of all before, mod 256)
 -- Flags: 1 in combat, 2 chat box open, 4 wants a reload, 8 busy (casting, a trade or shop window,
 -- a cinematic), 16 voice chat on (an active channel in push-to-talk mode), 32 voice goes through
 -- Discord (the voiceProvider CVar), 64 the player keeps push-to-talk for dictation (/mimiron ptt).
 -- Situation: bits 0-1 the group (0 solo, 1 party, 2 raid, 3 battleground), 4 the auction house
--- is open. Mimiron picks its default chat channel and its auction mode from it; nothing else.
+-- is open; bits 3-6 report mail, trade, stack-split and merchant windows. Mimiron picks its default chat channel and its auction mode from it; nothing else.
 -- KEY is WoW's push-to-talk binding, e.g. "SHIFT-V". Voice state only: never members, names
 -- of channels, who is speaking, or audio.
 -- Names that don't fit go to MimironDB.linknames and set "wants a reload"; Mimiron
@@ -161,11 +161,15 @@ local function situation()
     -- The frame is the fallback when the events differ: it is load-on-demand, so it may not exist.
     pcall(function() open = open or shown(AuctionHouseFrame) or shown(AuctionFrame) end)
     if open then value = value + SITUATION_AUCTION end
+    if shown(MailFrame) then value = value + 8 end
+    if shown(TradeFrame) then value = value + 16 end
+    if shown(StackSplitFrame) then value = value + 32 end
+    if shown(MerchantFrame) then value = value + 64 end
     return value
 end
 
 local function encode()
-    local bytes = { 0x4D, 0x32, flags(), session, revision % 256, situation(), #payload }
+    local bytes = { 0x4D, 0x33, flags(), session, revision % 256, situation(), #payload }
     for i = 1, #payload do bytes[#bytes + 1] = string.byte(payload, i) end
     local sum = 0
     for i = 1, #bytes do sum = sum + bytes[i] end

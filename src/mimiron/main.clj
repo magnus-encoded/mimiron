@@ -139,7 +139,7 @@
     (if (and (:game world) (live? world "screen_probe"))
       (let [[l actions events] (link/observe (:link world) (:cells params) (:state world)
                                              ((:clock world)))
-            world (cond-> (assoc world :link l)
+            world (cond-> (-> world (assoc :link l) (assoc-in [:state :windows] (:windows (:frame l))))
                     (:new-session events) (merge ((:reload-saved world)))
                     ;; The group and the auction house set Mimiron's mode; a missing strip
                     ;; (loading screen) changes nothing.
@@ -153,6 +153,7 @@
                   ;; Back in WoW: the player may have rebound keys in the game's own menu.
                   (cond-> game? (refresh-bindings "focus"))
                   (update :state router/focus game?)
+                  (update :state dissoc :windows)
                   ;; Voice chat state is re-read from the next strip after coming back.
                   (cond-> (not game?) (assoc-in [:link :last] nil))))
     ("speech" "verb" "button" "pad_input")

@@ -54,7 +54,16 @@ SlashCmdList.MIMIRON = function(message)
     local link = string.match(message, "^%s*link%s+(%a+)%s*$")
     local ptt = string.match(message, "^%s*ptt%s+(%a+)%s*$")
     local ah = string.match(message, "^%s*ah%s+(.*)$") or string.match(message, "^%s*ah%s*$") and ""
-    if ah then
+    local mail = string.match(message, "^%s*mail%s+(.*)$")
+    local fill = string.match(message, "^%s*fill%s+(.*)$")
+    local quantity = string.match(message, "^%s*quantity%s+(.*)$")
+    if quantity then
+        MimironQuantity.fill(quantity)
+    elseif mail then
+        MimironMail.fill(mail)
+    elseif fill then
+        MimironFill.focused(fill)
+    elseif ah then
         MimironAuction.run(ah)
     elseif ptt == "voice" or ptt == "dictation" then
         MimironLink.setPtt(ptt)

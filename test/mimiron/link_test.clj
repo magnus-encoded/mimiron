@@ -1,5 +1,6 @@
 (ns mimiron.link-test
-  (:require [clojure.edn :as edn]
+  (:require [clojure.java.shell :as sh]
+            [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [jsonista.core :as json]
@@ -13,7 +14,7 @@
 (defn- encode
   "Test-side encoder mirroring Link.lua."
   [{:keys [version flags session situation payload]
-    :or {version 0x32 flags 0 session 1 situation 0 payload "p="}}]
+    :or {version 0x33 flags 0 session 1 situation 0 payload "p="}}]
   (let [p (vec (.getBytes ^String payload "UTF-8"))
         head (into [0x4D version flags session 0 situation (count p)] (map #(bit-and % 0xff) p))
         bytes (conj head (mod (reduce + head) 256))
@@ -24,6 +25,7 @@
 (deftest decodes-what-the-add-on-draws
   (is (= {:session 42 :revision 1 :overflow false :party ["Ana" "Bjørn"]
           :group :party :auction false
+          :windows {:mail false :trade false :stack-split false :merchant false}
           :combat true :chat false :wants-reload false :busy false
           :voice false :voice-discord false :keep-dictation false :ptt-key nil}
          (link/decode strip))))
@@ -147,3 +149,37 @@
     (is (not-any? #(= "speech.hints" (:method %)) elsewhere) "inert outside WoW")
     (is (every? #(<= (count (get-in % [:params :hotwords])) main/hint-budget)
                 (filter #(= "speech.hints" (:method %)) in-game)))))
+
+(deftest decoded-windows-gate-fills-end-to-end
+  (doseq [[phrase bit] [["mail subject hello" 8] ["trade gold 5" 16]
+                         ["stack split 5" 32] ["vendor quantity 5" 64]]
+          situation [nil 0 bit]]
+    (let [messages (concat [{:id 0 :method "initialize" :params {}}
+                            {:method "focus" :params {:app_id "steam_proton" :title "World of Warcraft"}}
+                            {:id 1 :method "speech" :params {:text "chat with party"}}]
+                           (when situation [{:method "screen_probe" :params {:cells (encode {:situation situation})}}])
+                           [{:id 2 :method "speech" :params {:text phrase}}])
+          out (with-out-str
+                (main/run (map #(json/write-value-as-string %) messages)
+                          {} identity [] {:clock (constantly 0) :live-features #{"screen_probe"}}))
+          reply (->> (str/split-lines out)
+                     (map #(json/read-value % (json/object-mapper {:decode-key-fn true})))
+                     (filter #(= 2 (:id %))) first)
+          text (:text (second (:result reply)))]
+      (is (= (= bit situation) (str/includes? text "mimiron")))
+      (when (not= bit situation) (is (= (str "/p " phrase) text))))))
+
+
+(deftest addon-draws-window-bits-that-the-real-decoder-reads
+  ;; Written on the WoW machine; run only with the suite on the test machine.
+  (if-let [exe (try (when (zero? (:exit (sh/sh "lua5.1" "-v"))) "lua5.1")
+                   (catch java.io.IOException _ nil))]
+    (doseq [[frame window] [["MailFrame" :mail] ["TradeFrame" :trade]
+                            ["StackSplitFrame" :stack-split] ["MerchantFrame" :merchant]]]
+      (let [{:keys [exit out]} (sh/sh exe "test/fixtures/draw-strip.lua"
+                                    "addon/Mimiron/Link.lua" "11" "0" "0" ""
+                                    :env (assoc (into {} (System/getenv)) "STRIP_WINDOWS" frame))
+            decoded (when (zero? exit) (link/decode (edn/read-string out)))]
+        (is (zero? exit) out)
+        (is (= {window true} (into {} (filter val (:windows decoded)))))))
+    (is true "lua5.1 not installed; run fixture on test machine")))

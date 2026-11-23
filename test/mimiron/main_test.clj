@@ -313,3 +313,14 @@
 (deftest explicit-verbs-capability-can-disable-registration
   (is (not-any? #(= "verbs" (:method %))
                 (session (assoc-in init [:params :options] {:verbs false}) wow other wow))))
+
+(deftest filling-never-logs-the-words
+  (doseq [prefix ["type " "mail recipient " "mail subject " "mail body "
+                  "trade gold " "stack split " "vendor quantity "]
+          secret ["private mail subject" "twenty five"]]
+    (let [err (java.io.StringWriter.)]
+    (with-out-str
+      (binding [*err* err]
+        (main/run (map #(json/write-value-as-string (assoc % :jsonrpc "2.0"))
+                       [init wow {:id 1 :method "speech" :params {:text (str prefix secret)}}]) {})))
+      (is (not (str/includes? (str err) secret))))))

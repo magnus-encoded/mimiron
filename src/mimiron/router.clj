@@ -3,6 +3,9 @@
   (:require [clojure.string :as str]
             [mimiron.auction :as auction]
             [mimiron.bindings :as bindings]
+            [mimiron.fill :as fill]
+            [mimiron.mail :as mail]
+            [mimiron.quantity :as quantity]
             [mimiron.roster :as roster]
             [mimiron.sounds :as sounds]))
 
@@ -216,12 +219,43 @@
   ([state bound text shape names command-only?]
   (let [;; Help shows until the next utterance, whatever it is.
         {:keys [channel paused] :as state} (-> state (assoc :help false) (dissoc :notice))
+        fill (re-matches #"(?is)^\s*type(?:\s+(.*))?$" text)
+        words (some-> (second fill) str/trim fill/prepare)
         said (normalize text)
+        mail-fill (when (true? (get-in state [:windows :mail])) (mail/draft text))
+        quantity-window (cond (str/starts-with? said "trade") :trade
+                              (str/starts-with? said "vendor") :merchant
+                              :else :stack-split)
+        quantity-fill (when (true? (get-in state [:windows quantity-window]))
+                        (quantity/draft text))
+        fill-line (or (:line quantity-fill) (:line mail-fill)
+                      (when (and fill (seq words)) (str "/mimiron fill " words)))
+        quantity-open (bindings/key-for bound "OPENCHATSLASH")
         ;; Auction phrases count only in auction mode; elsewhere the same words are chat.
         phrase (when (:auction state) (auction/parse said))
         target (whisper-target said names)
         line (fn [] (let [t (str/trim text)] (if (= "yell" channel) (shape t) t)))]
     (cond
+      ;; WoW's command chat has a 255-byte budget, including the slash prefix.
+      (and fill-line (> (alength (.getBytes ^String fill-line "UTF-8")) 255))
+      [(assoc state :notice "too long") []]
+      (and quantity-fill (:line quantity-fill) (not (:draft state))
+           quantity-open (not (#{"enter" "escape"} (:key quantity-open))))
+      [(assoc state :draft true)
+       [quantity-open {:type "text" :text (subs (:line quantity-fill) 1)}]]
+      (and (:line mail-fill) (not (:draft state))
+           (true? (get-in state [:windows :mail])))
+      [(assoc state :draft true) [enter {:type "text" :text (:line mail-fill)}]]
+      (and fill (not (:draft state)) (seq words)
+           (not (re-find #"[\r\n]" text)))
+      [(assoc state :draft true)
+       [enter {:type "text" :text (str "/mimiron fill " words)}]]
+      ;; A recognized fill is consumed even when invalid, unsafe, or a draft is
+      ;; already open. Never append its amount or command text to a chat draft.
+      (or fill mail-fill quantity-fill)
+      [(assoc state :notice (cond fill "text fill refused"
+                                 mail-fill "mail fill refused"
+                                 :else "quantity fill refused")) []]
       (language-phrases said)
       [(if channel
          (-> state

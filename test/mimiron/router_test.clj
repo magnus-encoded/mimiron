@@ -1,5 +1,6 @@
 (ns mimiron.router-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [mimiron.router :as r]
             [mimiron.bindings :as b]))
 
@@ -462,3 +463,30 @@
     (let [[after actions] (r/speech (assoc r/initial :channel "party") {} phrase)]
       (is (= "party" (:channel after)) phrase)
       (is (= (str "/p " phrase) (:text (second actions))) phrase))))
+
+(deftest type-drafts-verbatim-and-one-a-sends-once
+  (doseq [state [r/initial (assoc r/initial :channel "guild")
+                 (assoc r/initial :auction true)]
+          words ["hello" "Hello, Ægir!" "/run harmless text"]]
+    (let [[draft actions] (r/speech state {} (str "type " words))
+          [sent send] (r/button draft :pad "south" true)]
+      (is (= [{:type "key" :key "enter"}
+              {:type "text" :text (str "/mimiron fill " words)}] actions))
+      (is (= [{:type "key" :key "enter"}] send))
+      (is (= [] (second (r/button sent :pad "south" false))))
+      (is (= [] (second (r/button sent :pad "south" true))))
+      (let [[refused actions] (r/speech draft {} "type replacement")]
+        (is (empty? actions))
+        (is (= "text fill refused" (:notice refused))))
+      (is (false? (:draft (first (r/button draft :pad "east" true)))))
+      (is (not-any? #(= words %) (vals draft)))))
+  (doseq [said ["type" "type   " "type hello\n/run nope" "type hello\rthere"]]
+    (is (= [] (second (r/speech r/initial {} said))))))
+
+(deftest fill-like-chat-falls-through
+  (doseq [phrase ["trade gold for mats" "mail subject" "stack split apples"
+                 "vendor quantity please"]]
+    (is (= (str "/2 " phrase)
+           (:text (second (second (r/speech (assoc r/initial :channel "trade") {} phrase)))))))
+  (doseq [phrase ["type hello"]]
+    (is (str/includes? (:text (second (second (r/speech r/initial {} phrase)))) "mimiron"))))

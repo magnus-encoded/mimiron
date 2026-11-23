@@ -32,3 +32,11 @@
       (is (zero? exit) out)
       (is (str/starts-with? out "ok ") out))
     (println "auction-addon-test: lua5.1 not found, stub-house run skipped")))
+
+(deftest focused-text-box-fill-under-stub-ui
+  (is (str/includes? (slurp "addon/Mimiron/Mimiron.lua") "MimironFill.focused(fill)"))
+  (is (some #{"Fill.lua"} (str/split-lines (slurp "addon/Mimiron/Mimiron.toc"))))
+  (if-let [exe (lua51)]
+    (let [{:keys [exit out]} (sh/sh exe "test/fixtures/focused-fill.lua")]
+      (is (zero? exit) out))
+    (is true "lua5.1 not installed; run fixture on test machine")))

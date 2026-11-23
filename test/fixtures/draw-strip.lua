@@ -21,6 +21,11 @@ for name in string.gmatch(list, "[^,]+") do party[#party + 1] = name end
 local raid = #party > 4
 local battleground, auction = os.getenv("STRIP_BG") == "1", os.getenv("STRIP_AH") == "1"
 
+-- STRIP_WINDOWS lists the frames whose IsShown reports true.
+for name in string.gmatch(os.getenv("STRIP_WINDOWS") or "", "[^,]+") do
+    _G[name] = { IsShown = function() return true end }
+end
+
 local function stub() return setmetatable({}, { __index = function() return function() end end }) end
 local textures, frames = {}, {}
 function CreateFrame()

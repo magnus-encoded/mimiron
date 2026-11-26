@@ -311,11 +311,18 @@
       ;; Enter opens the box on every keyboard layout; "/" is layout-dependent.
       ;; With a draft the box is already open, so extending it sends no key:
       ;; Enter would send the draft. Auction mode types nothing into chat.
-      (and (not command-only?) channel (not paused) (not (:auction state)) (seq said))
-      [(assoc state :draft true)
-       (if (:draft state)
-         [{:type "text" :text (str " " (line))}]
-         [enter {:type "text" :text (str (command state) " " (line))}])]
+      ;; Command normalization drops non-ASCII letters; dictation eligibility
+      ;; must use the original text so those utterances reach validation too.
+      (and (not command-only?) channel (not paused) (not (:auction state))
+           (not (str/blank? text)))
+      ;; Reject unexpected scripts before opening or extending chat. Keep only
+      ;; a fixed notice, never the rejected transcript, in state or logs.
+      (if (re-matches #"[\p{IsLatin}\p{P}\p{Zs}\x20-\x7E\t]*" text)
+        [(assoc state :draft true)
+         (if (:draft state)
+           [{:type "text" :text (str " " (line))}]
+           [enter {:type "text" :text (str (command state) " " (line))}])]
+        [(assoc state :notice "didn't catch that, say it again") []])
       :else [state []]))))
 
 (defn- step [channel delta]

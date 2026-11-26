@@ -47,6 +47,35 @@
     (is (= [{:type "key" :key "enter"} {:type "text" :text "/g two"}]
            (second (r/speech (-> s (say "one") (press :pad "south")) {} "two"))))))
 
+(deftest chat-dictation-refuses-unexpected-scripts
+  (doseq [state [(say r/initial "chat with party")
+                 (say r/initial "chat with party" "hello")]
+          text ["안녕하세요" "你好" "hello 世界" "hello Ж" "hello 😀" "😀"]]
+    (let [result (atom nil)
+          err (java.io.StringWriter.)
+          out (with-out-str
+                (binding [*err* err]
+                  (reset! result (r/speech state {} text))))
+          [after actions] @result]
+      (is (= [] actions))
+      (is (= (assoc state :notice "didn't catch that, say it again") after))
+      (is (= "didn't catch that, say it again" (r/status after)))
+      (is (= "" out (str err))))))
+
+(deftest chat-dictation-allows-latin-and-common-punctuation
+  (doseq [text ["æøå" "æøåÆØÅ, nå går vi!" "café" "À bientôt, señor!"
+                "Let's go — 2 + 2 = 4... (ok?)"]
+          state [(say r/initial "chat with party")
+                 (say r/initial "chat with party" "hello")]]
+    (let [[after actions] (r/speech state {} text)]
+      (is (:draft after))
+      (is (nil? (:notice after)))
+      (is (= (if (:draft state)
+               [{:type "text" :text (str " " text)}]
+               [{:type "key" :key "enter"}
+                {:type "text" :text (str "/p " text)}])
+             actions)))))
+
 (deftest speech-never-posts-without-a
   (testing "a second utterance extends the draft instead of pressing Enter"
     (let [s (say r/initial "chat with party" "background talk")]

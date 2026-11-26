@@ -324,3 +324,18 @@
         (main/run (map #(json/write-value-as-string (assoc % :jsonrpc "2.0"))
                        [init wow {:id 1 :method "speech" :params {:text (str prefix secret)}}]) {})))
       (is (not (str/includes? (str err) secret))))))
+
+(deftest verb-hints-fit-tehutis-wire-contract
+  (doseq [verb (:verbs main/verb-registration)]
+    (is (<= (count (:hints verb)) 16))
+    (is (every? #(not (str/includes? % (str (char 0)))) (:hints verb))))
+  (is (every? (set (get-in main/verb-registration [:verbs 0 :hints]))
+              ["chat with say" "chat with party" "chat with guild" "chat with raid"
+               "whisper" "chat with reply" "chat in english" "chat in norwegian"
+               "stop chat" "switch channel"])))
+
+(deftest command-hints-never-prime-bare-type
+  (is (not-any? #{"type"} (get-in main/verb-registration [:verbs 0 :hints])))
+  (doseq [channel [nil "say" "guild" "party"]]
+    (is (not-any? #{"type"}
+                  (main/hotwords {:game true :state {:channel channel}})))))

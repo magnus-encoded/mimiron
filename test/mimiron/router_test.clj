@@ -490,3 +490,17 @@
            (:text (second (second (r/speech (assoc r/initial :channel "trade") {} phrase)))))))
   (doseq [phrase ["type hello"]]
     (is (str/includes? (:text (second (second (r/speech r/initial {} phrase)))) "mimiron"))))
+
+(deftest punctuated-channel-commands-win-over-type-fills
+  (doseq [text ["type, chat with type, say" "Chat with say." "'Chat with say.'" "type chat with say"
+                "...type, Chat with say!" "type chat with type say"]
+          state [r/initial (assoc r/initial :channel "guild")
+                 (assoc r/initial :channel "guild" :draft true)]]
+    (let [[after actions] (r/speech state {} text)]
+      (is (= "say" (:channel after)) text)
+      (is (= (:draft state) (:draft after)) text)
+      (is (= [] actions) text)))
+  (let [[after actions] (r/speech r/initial {} "type, Hello, friend!")]
+    (is (:draft after))
+    (is (= [{:type "key" :key "enter"}
+            {:type "text" :text "/mimiron fill Hello, friend!"}] actions))))

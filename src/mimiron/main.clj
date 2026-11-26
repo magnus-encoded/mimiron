@@ -222,10 +222,14 @@
           (if (#{"party" "guild" "officer"} channel) "no" "en")))))
 
 (def verb-registration
+  ;; Tehuti rejects the entire notice above sixteen hints. Prefer chat controls
+  ;; after the wake word; panel commands remain available without priming.
   {:verbs [{:word "mimiron" :locale "en"
-            :hints (vec (concat router/norwegian-mode-hotwords
-                                 ["stop chat" "pause chat" "resume chat"]
-                                 (sort (keys router/voice-action-bindings))))}]})
+            :hints ["chat with say" "chat with party" "chat with guild" "chat with raid"
+                    "whisper" "chat with reply" "chat in english" "chat in norwegian"
+                    "stop chat" "switch channel" "pause chat" "resume chat"
+                    "chat with battleground" "chat with yell" "chat with officer"
+                    "chat with instance"]}]})
 
 (defn- sync!
   "Sends changed state notices and registers verbs once on each WoW focus entry."

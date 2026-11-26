@@ -39,7 +39,15 @@ events:RegisterEvent("ADDON_LOADED")
 events:SetScript("OnEvent", discover)
 -- Never replace Blizzard globals. Hook shared EditBox methods to discover boxes
 -- lazily, including anonymous load-on-demand boxes, without a creation-time walk.
-local probe = CreateFrame("EditBox")
+-- An unparented EditBox is shown and autofocuses by default, swallowing
+-- keyboard input (including Enter). Keep the introspection probe inert even
+-- during creation, before SetAutoFocus can run.
+local probeParent = CreateFrame("Frame")
+probeParent:Hide()
+local probe = CreateFrame("EditBox", nil, probeParent)
+probe:SetAutoFocus(false)
+probe:Hide()
+probe:ClearFocus()
 local mt = getmetatable(probe)
 local methods = mt and mt.__index
 if type(methods) == "table" and hooksecurefunc then

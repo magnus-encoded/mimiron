@@ -126,7 +126,7 @@
   [{:type "key" :key "a" :mods ["ctrl"]} {:type "key" :key "backspace"} escape])
 
 (defn normalize [text]
-  (->> (str/split (str/replace (str/lower-case text) #"[^a-z0-9' ]" " ") #"\s+")
+  (->> (str/split (str/replace (str/lower-case (str/replace text #"^[\s\p{P}]+|[\s\p{P}]+$" "")) #"[^a-z0-9' ]" " ") #"\s+")
        (remove str/blank?)
        (str/join " ")))
 
@@ -219,9 +219,19 @@
   ([state bound text shape names command-only?]
   (let [;; Help shows until the next utterance, whatever it is.
         {:keys [channel paused] :as state} (-> state (assoc :help false) (dissoc :notice))
-        fill (re-matches #"(?is)^\s*type(?:\s+(.*))?$" text)
+        ;; Match punctuation around the prefix without rewriting field contents.
+        ;; A channel command after "type" wins over filling a field. Restrict
+        ;; the recogniser's extra "type" repair to that channel slot only.
+        ;; Prefix punctuation ends at whitespace; punctuation after it is payload.
+        raw-fill (re-matches #"(?is)^[\s\p{P}]*type(?:\p{P}*\s+(.*))?$" text)
+        fill-command (some-> (second raw-fill) normalize
+                             (str/replace #"^(chat (?:with|to|in) )type " "$1"))
+        channel-command? (and raw-fill (seq fill-command) (or (chosen-channel fill-command)
+                                          (reply-phrases fill-command)
+                                          (not= ::none (whisper-target fill-command names))))
+        fill (when-not channel-command? raw-fill)
         words (some-> (second fill) str/trim fill/prepare)
-        said (normalize text)
+        said (if channel-command? fill-command (normalize text))
         mail-fill (when (true? (get-in state [:windows :mail])) (mail/draft text))
         quantity-window (cond (str/starts-with? said "trade") :trade
                               (str/starts-with? said "vendor") :merchant

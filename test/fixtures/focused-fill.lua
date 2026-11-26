@@ -36,22 +36,50 @@ function methods:HookScript(event, fn)
     end
 end
 function methods:HasFocus() return focused == self end
-function methods:IsShown() return self.shown end
+function methods:IsShown()
+    return self.shown and (not self.parent or self.parent:IsShown())
+end
+function methods:SetAutoFocus(value) self.autoFocus = value end
+function methods:Hide()
+    self.shown = false
+    if focused == self then focus(nil) end
+end
+function methods:Show()
+    self.shown = true
+    if self.kind == "EditBox" and self.autoFocus and self:IsShown() then focus(self) end
+end
 function methods:SetText(text) self.text = text; self.writes = self.writes + 1 end
 function methods:RegisterEvent() end
 function methods:SetScript(event, fn) self.scripts[event] = fn end
 function methods:SetFocus() focus(self) end
 function methods:ClearFocus() if focused == self then focus(nil) end end
-function CreateFrame(kind, name)
-    local box = setmetatable({ kind = kind, name = name, scripts = {}, shown = true, writes = 0 },
+function CreateFrame(kind, name, parent)
+    local box = setmetatable({ kind = kind, name = name, scripts = {}, shown = true, writes = 0,
+                              parent = parent, autoFocus = true },
         { __index = methods })
     frames[#frames + 1] = box
+    if kind == "EditBox" and box:IsShown() and box.autoFocus then focus(box) end
     return box
 end
 local originalCreateFrame = CreateFrame
 local subject = CreateFrame("EditBox", "SendMailSubjectEditBox")
 local chat = CreateFrame("EditBox", "ChatFrame1EditBox")
+focus(nil)
 dofile("addon/Mimiron/Fill.lua")
+local probe = frames[#frames]
+assert(probe.kind == "EditBox" and not probe:IsShown() and not probe.autoFocus,
+    "discovery probe must be hidden with autofocus disabled")
+assert(focused == nil, "loading Fill.lua must not steal keyboard focus")
+-- Model Enter's open-chat binding: a focused EditBox consumes it instead.
+local function enter()
+    if not focused then chat:SetFocus() end
+end
+enter()
+assert(focused == chat, "Enter must reach the game's open-chat binding after loading")
+focus(nil)
+probe:Show()
+assert(focused == nil and not probe:IsShown(), "hidden parent keeps probe inert")
+probe:Hide()
 assert(CreateFrame == originalCreateFrame, "Blizzard globals must retain identity")
 assert(not MimironFill.focused("secret"))
 focus(chat)

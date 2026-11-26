@@ -1,0 +1,12 @@
+## Title: Mimiron
+## Interface: 16001
+## SavedVariables: MimironDB
+## Notes: 16001 comes from lastAddonVersion in the client Config.wtf (build 1.60.1)
+
+Mimiron.lua
+
+Link.lua
+Auction.lua
+Fill.lua
+Mail.lua
+Quantity.lua
